@@ -257,3 +257,70 @@ export const buyMerchOnChain = async (walletAddress: string, merchTypeId: number
   }
 }
 
+
+async function fetchEventsByTypeAndUser<T>(
+  fullyQualifiedEventType: string,
+  walletAddress: string,
+  { limit = 100, pageSize = 100, signal }: { limit?: number; pageSize?: number; signal?: AbortSignal }
+): Promise<T[]> {
+  const base = SUPRA_RPC_URL;
+  let cursor: string | null = null;
+  const out: T[] = [];
+
+  while (out.length < limit) {
+    console.log(`${base}/events/${encodeURIComponent(fullyQualifiedEventType)}`)
+    const url = new URL(`${base}/events/${encodeURIComponent(fullyQualifiedEventType)}`);
+    url.searchParams.set('limit', String(Math.min(pageSize, limit - out.length)));
+    if (cursor) url.searchParams.set('cursor', cursor);
+
+    const res = await fetch(url.toString(), {
+      headers: { Accept: 'application/json' },
+      signal,
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Events fetch failed (${res.status}): ${body}`);
+    }
+
+    // Supra cursor comes in a response header:
+    const nextCursor = res.headers.get('x-supra-cursor');
+    const json = (await res.json()) as { data?: any[] };
+
+    const batch = (json.data ?? [])
+      .filter((row) => row?.event?.data?.user?.toLowerCase() === walletAddress.toLowerCase());
+
+    out.push(...(batch as T[]));
+
+    if (!nextCursor || (json.data?.length ?? 0) === 0) break;
+    cursor = nextCursor;
+  }
+
+  return out;
+}
+
+
+export async function getUserCratePurchases(
+  walletAddress: string,
+  { limit = 200, pageSize = 100, signal }: { limit?: number; pageSize?: number; signal?: AbortSignal }
+): Promise<{ user: string; crate_id: string; tier: number; month_slot: number; paid_zap: string; timestamp: number; transaction_hash: string; block_height: number }[]> {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS;
+  const eventType = `${moduleAddress}::zap_shop_v1::CratePurchased`;
+
+  const raw = await fetchEventsByTypeAndUser<any>(eventType, walletAddress, {
+    limit,
+    pageSize,
+    signal,
+  });
+
+  return raw.map((r) => ({
+    user: r.event.data.user,
+    crate_id: String(r.event.data.crate_id),
+    tier: Number(r.event.data.tier),
+    month_slot: Number(r.event.data.month_slot),
+    paid_zap: String(r.event.data.paid_zap),
+    timestamp: Number(r.event.data.timestamp),
+    transaction_hash: r.transaction_hash,
+    block_height: Number(r.block_height),
+  }));
+}

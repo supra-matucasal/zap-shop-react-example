@@ -7,6 +7,7 @@ import {
   openCratesOnChain,
   openCratesForRandomPrize,
   buyMerchOnChain,
+  getUserCratePurchases,
 } from '../services/zapshop'
 import { useWallet } from '../contexts/WalletContext'
 import './ZapShopInterface.css'
@@ -16,6 +17,8 @@ const ZapShopInterface = () => {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [cratePurchases, setCratePurchases] = useState<any[]>([])
+  const [loadingPurchases, setLoadingPurchases] = useState(false)
 
   // Form states
   const [ticketQuantity, setTicketQuantity] = useState('1')
@@ -50,6 +53,27 @@ const ZapShopInterface = () => {
   const formatAddress = (address: string | null) => {
     if (!address) return ''
     return `${address.slice(0, 6)}...${address.slice(-4)}`
+  }
+
+  const handleFetchCratePurchases = async () => {
+    if (!account) {
+      setError('Please connect your wallet first')
+      return
+    }
+
+    setLoadingPurchases(true)
+    setError(null)
+
+    try {
+      const purchases = await getUserCratePurchases(account, {})
+      setCratePurchases(purchases)
+      setResult(`Found ${purchases.length} crate purchase(s)`)
+    } catch (err: any) {
+      setError(`Failed to fetch crate purchases: ${err.message || 'Unknown error'}`)
+      setCratePurchases([])
+    } finally {
+      setLoadingPurchases(false)
+    }
   }
 
   return (
@@ -314,6 +338,18 @@ const ZapShopInterface = () => {
             Buy Merch
           </button>
         </div>
+
+        {/* Get Crate Purchases */}
+        <div className="action-card">
+          <h3>My Crate Purchases</h3>
+          <button
+            onClick={handleFetchCratePurchases}
+            disabled={loadingPurchases || !account}
+            className="action-button"
+          >
+            {loadingPurchases ? 'Loading...' : 'Fetch Purchases'}
+          </button>
+        </div>
       </div>
 
       {loading && (
@@ -331,6 +367,44 @@ const ZapShopInterface = () => {
       {result && (
         <div className="status-message success">
           <p>{result}</p>
+        </div>
+      )}
+
+      {cratePurchases.length > 0 && (
+        <div className="crate-purchases-section">
+          <h3>Crate Purchases ({cratePurchases.length})</h3>
+          <div className="purchases-list">
+            {cratePurchases.map((purchase, index) => (
+              <div key={index} className="purchase-item">
+                <div className="purchase-header">
+                  <span className="purchase-id">Crate ID: {purchase.crate_id}</span>
+                  <span className="purchase-tier">Tier {purchase.tier}</span>
+                </div>
+                <div className="purchase-details">
+                  <div className="detail-row">
+                    <span className="detail-label">Month Slot:</span>
+                    <span className="detail-value">{purchase.month_slot}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Paid ZAP:</span>
+                    <span className="detail-value">{purchase.paid_zap}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Date:</span>
+                    <span className="detail-value">
+                      {new Date(purchase.timestamp * 1000).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Transaction:</span>
+                    <span className="detail-value transaction-hash">
+                      {purchase.transaction_hash.slice(0, 16)}...
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
