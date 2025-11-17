@@ -181,43 +181,43 @@ export const openCratesOnChain = async (walletAddress: string, cratesId: number)
   }
 }
 
-export const openCratesForRandomPrize = async (walletAddress: string, cratesId: number) => {
-  try {
-    const supraProvider = window?.starkey?.supra
-    if (!supraProvider) throw new Error('Supra wallet not connected.')
+// export const openCratesForRandomPrize = async (walletAddress: string, cratesId: number) => {
+//   try {
+//     const supraProvider = window?.starkey?.supra
+//     if (!supraProvider) throw new Error('Supra wallet not connected.')
 
-    const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
-    const txExpiryTime = Math.ceil(Date.now() / 1000) + 60 // 60 seconds
-    const optionalTransactionPayloadArgs = { txExpiryTime }
+//     const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
+//     const txExpiryTime = Math.ceil(Date.now() / 1000) + 60 // 60 seconds
+//     const optionalTransactionPayloadArgs = { txExpiryTime }
 
-    const data = await supraProvider.createRawTransactionData([
-      walletAddress,
-      0,
-      moduleAddress,
-      'zap_shop_v1',
-      'open_crate_finalize',
-      [],
-      [BCS.bcsSerializeUint64(cratesId)],
-      optionalTransactionPayloadArgs,
-    ])
+//     const data = await supraProvider.createRawTransactionData([
+//       walletAddress,
+//       0,
+//       moduleAddress,
+//       'zap_shop_v1',
+//       'open_crate_finalize',
+//       [],
+//       [BCS.bcsSerializeUint64(cratesId)],
+//       optionalTransactionPayloadArgs,
+//     ])
 
-    const params = {
-      data,
-      from: walletAddress,
-      to: moduleAddress,
-      chainId: '',
-      value: '',
-      options: { waitForTransaction: true },
-    }
+//     const params = {
+//       data,
+//       from: walletAddress,
+//       to: moduleAddress,
+//       chainId: '',
+//       value: '',
+//       options: { waitForTransaction: true },
+//     }
 
-    const txHash = await supraProvider.sendTransaction(params)
+//     const txHash = await supraProvider.sendTransaction(params)
 
-    return txHash
-  } catch (error) {
-    console.error('~ Error in openCratesForRandomPrize:', error)
-    throw error
-  }
-}
+//     return txHash
+//   } catch (error) {
+//     console.error('~ Error in openCratesForRandomPrize:', error)
+//     throw error
+//   }
+// }
 
 export const buyMerchOnChain = async (walletAddress: string, merchTypeId: number, merchQuantity: number) => {
   try {
@@ -324,3 +324,93 @@ export async function getUserCratePurchases(
     block_height: Number(r.block_height),
   }));
 }
+
+
+export async function checkCrateOpened(walletAddress: string, crateId: number) {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
+  try {
+    const response = await fetch(`${SUPRA_RPC_URL}/view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        function: `${moduleAddress}::zap_shop_v1::check_crate_opened`,
+        type_arguments: [],
+        arguments: [walletAddress, String(crateId)],
+      }),
+    })
+
+    const data = await response.json()
+    return data?.result
+  } catch (e) {
+    console.log(e)
+    throw e
+  }
+
+}
+
+export async function getPrizeAlloted(walletAddress: string, crateId: number) {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
+  try {
+    const response = await fetch(`${SUPRA_RPC_URL}/view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        function: `${moduleAddress}::zap_shop_v1::get_prize_alloted`,
+        type_arguments: [],
+        arguments: [walletAddress, String(crateId)],
+      }),
+    })
+
+    const data = await response.json()
+    return data?.result
+  } catch (e) {
+    console.log(e)
+    throw e
+  }
+
+}
+
+export async function claimCratePrize(walletAddress: string, crateId: number) {
+  //claim_crate_prize 
+  try {
+    const supraProvider = window?.starkey?.supra
+    if (!supraProvider) throw new Error('Supra wallet not connected.')
+
+    const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
+    const txExpiryTime = Math.ceil(Date.now() / 1000) + 60 
+    const optionalTransactionPayloadArgs = { txExpiryTime }
+
+    const data = await supraProvider.createRawTransactionData([
+      walletAddress,
+      0,
+      moduleAddress,
+      'zap_shop_v1',
+      'claim_crate_prize',
+      [],
+      [BCS.bcsSerializeUint64(crateId)],
+      optionalTransactionPayloadArgs,
+    ])
+
+    const params = {
+      data,
+      from: walletAddress,
+      to: moduleAddress,
+      chainId: '',
+      value: '',
+      options: { waitForTransaction: true },
+    }
+
+    const txHash = await supraProvider.sendTransaction(params)
+
+    return txHash
+  } catch (error) {
+    console.error('~ Error in openCratesForRandomPrize:', error)
+    throw error
+  }
+}
+
+

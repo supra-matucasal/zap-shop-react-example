@@ -163,6 +163,13 @@
   font-size: 1.2rem;
 }
 
+.info-text {
+  font-size: 0.9rem;
+  color: #666;
+  margin-bottom: 15px;
+  font-style: italic;
+}
+
 .form-group {
   margin-bottom: 12px;
 }

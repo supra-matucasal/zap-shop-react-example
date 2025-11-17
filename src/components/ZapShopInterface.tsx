@@ -5,9 +5,11 @@ import {
   buyRafflesTickets,
   buyCratesOnChain,
   openCratesOnChain,
-  openCratesForRandomPrize,
   buyMerchOnChain,
   getUserCratePurchases,
+  claimCratePrize,
+  getPrizeAlloted,
+  checkCrateOpened,
 } from '../services/zapshop'
 import { useWallet } from '../contexts/WalletContext'
 import './ZapShopInterface.css'
@@ -275,9 +277,9 @@ const ZapShopInterface = () => {
           </button>
         </div>
 
-        {/* Open Crate for Random Prize */}
+        {/* Claim Crate Prize */}
         <div className="action-card">
-          <h3>Finalize Crate Opening</h3>
+          <h3>Claim Crate Prize</h3>
           <div className="form-group">
             <label>Crate ID:</label>
             <input
@@ -291,14 +293,68 @@ const ZapShopInterface = () => {
           <button
             onClick={() =>
               handleAction(
-                () => openCratesForRandomPrize(account!, parseInt(cratesId)),
-                'Finalize Crate Opening',
+                () => claimCratePrize(account!, parseInt(cratesId)),
+                'Claim Crate Prize',
               )
             }
             disabled={loading || !account}
             className="action-button"
           >
-            Finalize Opening
+            Claim Prize
+          </button>
+        </div>
+
+        {/* Check Crate Opened */}
+        <div className="action-card">
+          <h3>Check Crate Opened</h3>
+          <div className="form-group">
+            <label>Crate ID:</label>
+            <input
+              type="number"
+              value={cratesId}
+              onChange={(e) => setCratesId(e.target.value)}
+              min="0"
+              className="number-input"
+            />
+          </div>
+          <button
+            onClick={() =>
+              handleAction(
+                () => checkCrateOpened(account!, parseInt(cratesId)),
+                'Check Crate Opened',
+              )
+            }
+            disabled={loading || !account}
+            className="action-button"
+          >
+            Check Status
+          </button>
+        </div>
+
+        {/* Get Prize Alloted */}
+        <div className="action-card">
+          <h3>Get Prize Alloted</h3>
+          <div className="form-group">
+            <label>Crate ID:</label>
+            <input
+              type="number"
+              value={cratesId}
+              onChange={(e) => setCratesId(e.target.value)}
+              min="0"
+              className="number-input"
+            />
+          </div>
+          <button
+            onClick={() =>
+              handleAction(
+                () => getPrizeAlloted(account!, parseInt(cratesId)),
+                'Get Prize Alloted',
+              )
+            }
+            disabled={loading || !account}
+            className="action-button"
+          >
+            Get Prizes
           </button>
         </div>
 
