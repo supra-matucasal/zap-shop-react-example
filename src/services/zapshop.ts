@@ -62,43 +62,59 @@ export const registerUserOnChain = async (walletAddress: string) => {
   }
 }
 
-export const buyRafflesTickets = async (walletAddress: string, ticketQuantity: number, typeId: number) => {
+export const buyRafflesTickets = async (
+  walletAddress: string,
+  ticketQuantity: number,
+  typeId: number
+) => {
+  const supraProvider = (window as any)?.starkey?.supra;
+  if (!supraProvider) throw new Error('Supra wallet not connected.');
+
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS;
+
+  const DEFAULT_GAS_PRICE = 10_000;
+  let gasUnitPrice = DEFAULT_GAS_PRICE;
   try {
-    const supraProvider = window?.starkey?.supra
-    if (!supraProvider) throw new Error('Supra wallet not connected.')
-
-    const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
-    const txExpiryTime = Math.ceil(Date.now() / 1000) + 60 // 60 seconds
-    const optionalTransactionPayloadArgs = { txExpiryTime }
-
-    const data = await supraProvider.createRawTransactionData([
-      walletAddress,
-      0,
-      moduleAddress,
-      'zap_shop_v1',
-      'buy_raffles',
-      [],
-      [BCS.bcsSerializeUint64(ticketQuantity), BCS.bcsSerializeU8(typeId)],
-      optionalTransactionPayloadArgs,
-    ])
-
-    const params = {
-      data,
-      from: walletAddress,
-      to: moduleAddress,
-      chainId: '',
-      value: '',
-      options: { waitForTransaction: true },
+    if (typeof supraProvider.getGasPrice === 'function') {
+      const gp = Number(await supraProvider.getGasPrice());
+      if (!Number.isNaN(gp) && gp > 0) gasUnitPrice = gp;
     }
+  } catch { /* ignore */ }
+  gasUnitPrice = Math.floor(gasUnitPrice * 1.2);
 
-    const txHash = await supraProvider.sendTransaction(params)
+  const base = 80_000;
+  const perTicket = 1_200;
+  let maxGas = base + perTicket * ticketQuantity;
+  maxGas = Math.max(120_000, Math.min(maxGas, 2_000_000));
 
-    return txHash
-  } catch (error) {
-    console.error('~ Error in buyRafflesTickets:', error)
-    throw error
-  }
-}
+  const txExpiryTime = Math.ceil(Date.now() / 1000) + 120;
+
+  const optionalTransactionPayloadArgs = {
+    txExpiryTime,
+    gasUnitPrice,
+    maxGas,
+  };
+
+  const data = await supraProvider.createRawTransactionData([
+    walletAddress,
+    0,
+    moduleAddress,
+    'zap_shop_v1',
+    'buy_raffles',
+    [],
+    [BCS.bcsSerializeUint64(ticketQuantity), BCS.bcsSerializeU8(typeId)],
+    optionalTransactionPayloadArgs,
+  ]);
+
+  return supraProvider.sendTransaction({
+    data,
+    from: walletAddress,
+    to: moduleAddress,
+    chainId: '',
+    value: '',
+    options: { waitForTransaction: true },
+  });
+};
 
 export const buyCratesOnChain = async (
   walletAddress: string,
