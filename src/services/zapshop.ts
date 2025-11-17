@@ -325,6 +325,48 @@ export async function getUserCratePurchases(
   }));
 }
 
+export async function getUserRafflesPurchases(
+  walletAddress: string,
+  { limit = 200, pageSize = 100, signal }: { limit?: number; pageSize?: number; signal?: AbortSignal }
+): Promise<{ user: string; raffle_id: string; raffle_type_id: number; paid_zap: string; timestamp: number; transaction_hash: string; block_height: number }[]> {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS;
+  const eventType = `${moduleAddress}::zap_shop_v1::RafflesPurchased`;
+
+  const raw = await fetchEventsByTypeAndUser<any>(eventType, walletAddress, {
+    limit,
+    pageSize,
+    signal,
+  });
+
+  // Flatten the results - one entry per raffle_id (since raffle_ids is an array)
+  const result: { user: string; raffle_id: string; raffle_type_id: number; paid_zap: string; timestamp: number; transaction_hash: string; block_height: number }[] = [];
+  
+  raw.forEach((r) => {
+    const raffleIds = r.event.data.raffle_ids || [];
+    const user = r.event.data.user;
+    const raffleTypeId = Number(r.event.data.raffle_type_id);
+    const paidZap = String(r.event.data.paid_zap);
+    const timestamp = Number(r.event.data.timestamp);
+    const transactionHash = r.transaction_hash;
+    const blockHeight = Number(r.block_height);
+
+    // Create one entry for each raffle_id in the array
+    raffleIds.forEach((raffleId: any) => {
+      result.push({
+        user,
+        raffle_id: String(raffleId),
+        raffle_type_id: raffleTypeId,
+        paid_zap: paidZap,
+        timestamp,
+        transaction_hash: transactionHash,
+        block_height: blockHeight,
+      });
+    });
+  });
+
+  return result;
+}
+
 
 export async function checkCrateOpened(walletAddress: string, crateId: number) {
   const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS

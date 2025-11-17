@@ -7,6 +7,7 @@ import {
   openCratesOnChain,
   buyMerchOnChain,
   getUserCratePurchases,
+  getUserRafflesPurchases,
   claimCratePrize,
   getPrizeAlloted,
   checkCrateOpened,
@@ -20,7 +21,9 @@ const ZapShopInterface = () => {
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cratePurchases, setCratePurchases] = useState<any[]>([])
+  const [rafflePurchases, setRafflePurchases] = useState<any[]>([])
   const [loadingPurchases, setLoadingPurchases] = useState(false)
+  const [loadingRafflePurchases, setLoadingRafflePurchases] = useState(false)
 
   // Form states
   const [ticketQuantity, setTicketQuantity] = useState('1')
@@ -75,6 +78,27 @@ const ZapShopInterface = () => {
       setCratePurchases([])
     } finally {
       setLoadingPurchases(false)
+    }
+  }
+
+  const handleFetchRafflePurchases = async () => {
+    if (!account) {
+      setError('Please connect your wallet first')
+      return
+    }
+
+    setLoadingRafflePurchases(true)
+    setError(null)
+
+    try {
+      const purchases = await getUserRafflesPurchases(account, {})
+      setRafflePurchases(purchases)
+      setResult(`Found ${purchases.length} raffle ticket(s)`)
+    } catch (err: any) {
+      setError(`Failed to fetch raffle purchases: ${err.message || 'Unknown error'}`)
+      setRafflePurchases([])
+    } finally {
+      setLoadingRafflePurchases(false)
     }
   }
 
@@ -406,6 +430,18 @@ const ZapShopInterface = () => {
             {loadingPurchases ? 'Loading...' : 'Fetch Purchases'}
           </button>
         </div>
+
+        {/* Get Raffle Purchases */}
+        <div className="action-card">
+          <h3>My Raffle Tickets</h3>
+          <button
+            onClick={handleFetchRafflePurchases}
+            disabled={loadingRafflePurchases || !account}
+            className="action-button"
+          >
+            {loadingRafflePurchases ? 'Loading...' : 'Fetch Tickets'}
+          </button>
+        </div>
       </div>
 
       {loading && (
@@ -440,6 +476,44 @@ const ZapShopInterface = () => {
                   <div className="detail-row">
                     <span className="detail-label">Month Slot:</span>
                     <span className="detail-value">{purchase.month_slot}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Paid ZAP:</span>
+                    <span className="detail-value">{purchase.paid_zap}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Date:</span>
+                    <span className="detail-value">
+                      {new Date(purchase.timestamp * 1000).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Transaction:</span>
+                    <span className="detail-value transaction-hash">
+                      {purchase.transaction_hash.slice(0, 16)}...
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {rafflePurchases.length > 0 && (
+        <div className="crate-purchases-section">
+          <h3>Raffle Tickets ({rafflePurchases.length})</h3>
+          <div className="purchases-list">
+            {rafflePurchases.map((purchase, index) => (
+              <div key={index} className="purchase-item">
+                <div className="purchase-header">
+                  <span className="purchase-id">Raffle ID: {purchase.raffle_id}</span>
+                  <span className="purchase-tier">Type {purchase.raffle_type_id}</span>
+                </div>
+                <div className="purchase-details">
+                  <div className="detail-row">
+                    <span className="detail-label">Type ID:</span>
+                    <span className="detail-value">{purchase.raffle_type_id}</span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">Paid ZAP:</span>
