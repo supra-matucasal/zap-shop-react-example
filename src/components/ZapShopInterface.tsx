@@ -9,8 +9,10 @@ import {
   getUserCratePurchases,
   getUserRafflesPurchases,
   claimCratePrize,
-  getPrizeAlloted,
+  getPrizeAllowed,
   checkCrateOpened,
+  getCratesPrizesClaimed,
+  getMerchPurchases
 } from '../services/zapshop'
 import { useWallet } from '../contexts/WalletContext'
 import './ZapShopInterface.css'
@@ -22,8 +24,12 @@ const ZapShopInterface = () => {
   const [error, setError] = useState<string | null>(null)
   const [cratePurchases, setCratePurchases] = useState<any[]>([])
   const [rafflePurchases, setRafflePurchases] = useState<any[]>([])
+  const [claimedPrizes, setClaimedPrizes] = useState<any[]>([])
+  const [merchPurchases, setMerchPurchases] = useState<any[]>([])
   const [loadingPurchases, setLoadingPurchases] = useState(false)
   const [loadingRafflePurchases, setLoadingRafflePurchases] = useState(false)
+  const [loadingClaimedPrizes, setLoadingClaimedPrizes] = useState(false)
+  const [loadingMerchPurchases, setLoadingMerchPurchases] = useState(false)
 
   // Form states
   const [ticketQuantity, setTicketQuantity] = useState('1')
@@ -70,7 +76,9 @@ const ZapShopInterface = () => {
     setError(null)
 
     try {
-      const purchases = await getUserCratePurchases(account, {})
+      let purchases = await getUserCratePurchases(account, {})
+      //Limit purchases to show only 10
+      purchases = purchases.slice(0, 10)
       setCratePurchases(purchases)
       setResult(`Found ${purchases.length} crate purchase(s)`)
     } catch (err: any) {
@@ -99,6 +107,48 @@ const ZapShopInterface = () => {
       setRafflePurchases([])
     } finally {
       setLoadingRafflePurchases(false)
+    }
+  }
+
+  const handleFetchClaimedPrizes = async () => {
+    if (!account) {
+      setError('Please connect your wallet first')
+      return
+    }
+
+    setLoadingClaimedPrizes(true)
+    setError(null)
+
+    try {
+      const prizes = await getCratesPrizesClaimed(account)
+      setClaimedPrizes(prizes)
+      setResult(`Found ${prizes.length} claimed prize(s)`)
+    } catch (err: any) {
+      setError(`Failed to fetch claimed prizes: ${err.message || 'Unknown error'}`)
+      setClaimedPrizes([])
+    } finally {
+      setLoadingClaimedPrizes(false)
+    }
+  }
+
+  const handleFetchMerchPurchases = async () => {
+    if (!account) {
+      setError('Please connect your wallet first')
+      return
+    }
+
+    setLoadingMerchPurchases(true)
+    setError(null)
+
+    try {
+      const purchases = await getMerchPurchases(account)
+      setMerchPurchases(purchases)
+      setResult(`Found ${purchases.length} merchandise purchase(s)`)
+    } catch (err: any) {
+      setError(`Failed to fetch merchandise purchases: ${err.message || 'Unknown error'}`)
+      setMerchPurchases([])
+    } finally {
+      setLoadingMerchPurchases(false)
     }
   }
 
@@ -371,8 +421,8 @@ const ZapShopInterface = () => {
           <button
             onClick={() =>
               handleAction(
-                () => getPrizeAlloted(account!, parseInt(cratesId)),
-                'Get Prize Alloted',
+                () => getPrizeAllowed(account!, parseInt(cratesId)),
+                'Get Prize Allowed',
               )
             }
             disabled={loading || !account}
@@ -440,6 +490,30 @@ const ZapShopInterface = () => {
             className="action-button"
           >
             {loadingRafflePurchases ? 'Loading...' : 'Fetch Tickets'}
+          </button>
+        </div>
+
+        {/* Get Claimed Prizes */}
+        <div className="action-card">
+          <h3>My Claimed Prizes</h3>
+          <button
+            onClick={handleFetchClaimedPrizes}
+            disabled={loadingClaimedPrizes || !account}
+            className="action-button"
+          >
+            {loadingClaimedPrizes ? 'Loading...' : 'Fetch Claimed Prizes'}
+          </button>
+        </div>
+
+        {/* Get Merchandise Purchases */}
+        <div className="action-card">
+          <h3>My Merchandise Purchases</h3>
+          <button
+            onClick={handleFetchMerchPurchases}
+            disabled={loadingMerchPurchases || !account}
+            className="action-button"
+          >
+            {loadingMerchPurchases ? 'Loading...' : 'Fetch Merchandise'}
           </button>
         </div>
       </div>
@@ -518,6 +592,78 @@ const ZapShopInterface = () => {
                   <div className="detail-row">
                     <span className="detail-label">Paid ZAP:</span>
                     <span className="detail-value">{purchase.paid_zap}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Date:</span>
+                    <span className="detail-value">
+                      {new Date(purchase.timestamp * 1000).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Transaction:</span>
+                    <span className="detail-value transaction-hash">
+                      {purchase.transaction_hash.slice(0, 16)}...
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {claimedPrizes.length > 0 && (
+        <div className="crate-purchases-section">
+          <h3>Claimed Prizes ({claimedPrizes.length})</h3>
+          <div className="purchases-list">
+            {claimedPrizes.map((prize, index) => (
+              <div key={index} className="purchase-item">
+                <div className="purchase-header">
+                  <span className="purchase-id">Crate ID: {prize.crate_id}</span>
+                  <span className="purchase-tier">Claimed</span>
+                </div>
+                <div className="purchase-details">
+                  <div className="detail-row">
+                    <span className="detail-label">Prize SUPRA Claimed:</span>
+                    <span className="detail-value">{prize.prize_supra_claimed}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Date:</span>
+                    <span className="detail-value">
+                      {new Date(prize.timestamp * 1000).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Transaction:</span>
+                    <span className="detail-value transaction-hash">
+                      {prize.transaction_hash.slice(0, 16)}...
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {merchPurchases.length > 0 && (
+        <div className="crate-purchases-section">
+          <h3>Merchandise Purchases ({merchPurchases.length})</h3>
+          <div className="purchases-list">
+            {merchPurchases.map((purchase, index) => (
+              <div key={index} className="purchase-item">
+                <div className="purchase-header">
+                  <span className="purchase-id">Merch ID: {purchase.merch_id}</span>
+                  <span className="purchase-tier">Type {purchase.merch_type_id}</span>
+                </div>
+                <div className="purchase-details">
+                  <div className="detail-row">
+                    <span className="detail-label">Merch Type ID:</span>
+                    <span className="detail-value">{purchase.merch_type_id}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span className="detail-label">Quantity:</span>
+                    <span className="detail-value">{purchase.quantity}</span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">Date:</span>

@@ -197,44 +197,6 @@ export const openCratesOnChain = async (walletAddress: string, cratesId: number)
   }
 }
 
-// export const openCratesForRandomPrize = async (walletAddress: string, cratesId: number) => {
-//   try {
-//     const supraProvider = window?.starkey?.supra
-//     if (!supraProvider) throw new Error('Supra wallet not connected.')
-
-//     const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
-//     const txExpiryTime = Math.ceil(Date.now() / 1000) + 60 // 60 seconds
-//     const optionalTransactionPayloadArgs = { txExpiryTime }
-
-//     const data = await supraProvider.createRawTransactionData([
-//       walletAddress,
-//       0,
-//       moduleAddress,
-//       'zap_shop_v1',
-//       'open_crate_finalize',
-//       [],
-//       [BCS.bcsSerializeUint64(cratesId)],
-//       optionalTransactionPayloadArgs,
-//     ])
-
-//     const params = {
-//       data,
-//       from: walletAddress,
-//       to: moduleAddress,
-//       chainId: '',
-//       value: '',
-//       options: { waitForTransaction: true },
-//     }
-
-//     const txHash = await supraProvider.sendTransaction(params)
-
-//     return txHash
-//   } catch (error) {
-//     console.error('~ Error in openCratesForRandomPrize:', error)
-//     throw error
-//   }
-// }
-
 export const buyMerchOnChain = async (walletAddress: string, merchTypeId: number, merchQuantity: number) => {
   try {
     const supraProvider = window?.starkey?.supra
@@ -356,7 +318,7 @@ export async function getUserRafflesPurchases(
 
   // Flatten the results - one entry per raffle_id (since raffle_ids is an array)
   const result: { user: string; raffle_id: string; raffle_type_id: number; paid_zap: string; timestamp: number; transaction_hash: string; block_height: number }[] = [];
-  
+
   raw.forEach((r) => {
     const raffleIds = r.event.data.raffle_ids || [];
     const user = r.event.data.user;
@@ -383,6 +345,44 @@ export async function getUserRafflesPurchases(
   return result;
 }
 
+export async function getCratesPrizesClaimed(walletAddress: string) {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS;
+  const eventType = `${moduleAddress}::zap_shop_v1::CratePrizeClaimed`;
+  const raw = await fetchEventsByTypeAndUser<any>(eventType, walletAddress, {
+    limit: 100,
+    pageSize: 100,
+    signal: undefined,
+  });
+  return raw.map((r) => ({
+    user: r.event.data.user,
+    crate_id: String(r.event.data.crate_id),
+    prize_supra_claimed: String(r.event.data.prize_supra_claimed),
+    timestamp: Number(r.event.data.timestamp),
+    transaction_hash: r.transaction_hash,
+    block_height: Number(r.block_height),
+  }));
+}
+
+export async function getMerchPurchases(walletAddress: string) {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS;
+  const eventType = `${moduleAddress}::zap_shop_v1::MerchPurchased`;
+  const raw = await fetchEventsByTypeAndUser<any>(eventType, walletAddress, {
+    limit: 100,
+    pageSize: 100,
+    signal: undefined,
+  });
+
+  return raw.map((r) => ({
+    user: r.event.data.user,
+    merch_id: String(r.event.data.merch_id),
+    merch_type_id: Number(r.event.data.merch_type_id),
+    quantity: Number(r.event.data.quantity),
+    timestamp: Number(r.event.data.timestamp),
+    transaction_hash: r.transaction_hash,
+    block_height: Number(r.block_height),
+  }));
+
+}
 
 export async function checkCrateOpened(walletAddress: string, crateId: number) {
   const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
@@ -408,7 +408,7 @@ export async function checkCrateOpened(walletAddress: string, crateId: number) {
 
 }
 
-export async function getPrizeAlloted(walletAddress: string, crateId: number) {
+export async function getPrizeAllowed(walletAddress: string, crateId: number) {
   const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
   try {
     const response = await fetch(`${SUPRA_RPC_URL}/view`, {
@@ -439,7 +439,7 @@ export async function claimCratePrize(walletAddress: string, crateId: number) {
     if (!supraProvider) throw new Error('Supra wallet not connected.')
 
     const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
-    const txExpiryTime = Math.ceil(Date.now() / 1000) + 60 
+    const txExpiryTime = Math.ceil(Date.now() / 1000) + 60
     const optionalTransactionPayloadArgs = { txExpiryTime }
 
     const data = await supraProvider.createRawTransactionData([
