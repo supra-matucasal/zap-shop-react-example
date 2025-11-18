@@ -158,7 +158,8 @@ module ZAPSHOP::zap_shop_v1 {
 
     /// Global merchandise type table (under admin)
     struct MerchTable has key {
-        items: Table<u64, Merch> // merch_type_id -> Merch
+        items: Table<u64, Merch>, // merch_type_id -> Merch
+        type_ids: vector<u64> // list of all merch_type_ids
     }
 
     /// User inventory (under each user)
@@ -166,8 +167,15 @@ module ZAPSHOP::zap_shop_v1 {
         raffle_ids: vector<u64>,
         crates: Table<u64, Crate>,
         crate_ids: vector<u64>,
-        merch: Table<u64, u64>, // merch_type_id -> qty
+        merch: Table<u64, UserMerch>, // merch_type_id -> UserMerch
         merch_type_ids: vector<u64>
+    }
+
+    struct UserMerch has store, drop, copy {
+        type_id: u64,
+        quantity: u64,
+        price: u64,
+        purchase_time: u64
     }
 
     /********** COUNTERS **********/
@@ -199,7 +207,7 @@ module ZAPSHOP::zap_shop_v1 {
     }
 
     /// Daily purchase counts per user
-    struct DailyUser has store {
+    struct DailyUser has store, copy {
         raffles: u64,
         bronze: u64,
         silver: u64,
@@ -403,7 +411,13 @@ module ZAPSHOP::zap_shop_v1 {
             }
         );
 
-        move_to(admin, MerchTable { items: Table::new() });
+        move_to(
+            admin,
+            MerchTable {
+                items: Table::new(),
+                type_ids: vector::empty()
+            }
+        );
         move_to(admin, Counters { raffle_counter: 0, crate_counter: 0 });
         move_to(
             admin,
@@ -701,6 +715,9 @@ module ZAPSHOP::zap_shop_v1 {
         assert!(signer::address_of(admin) == cfg.admin, E_ONLY_ADMIN_PRIVILEDGE);
 
         let mt = borrow_global_mut<MerchTable>(cfg.admin);
+        if (!vector::contains(&mt.type_ids, &merch_type_id)) {
+            vector::push_back(&mut mt.type_ids, merch_type_id);
+        };
         if (Table::contains(&mt.items, merch_type_id)) {
             let m = Table::borrow_mut(&mut mt.items, merch_type_id);
             // preserve sold; update fields
@@ -709,7 +726,6 @@ module ZAPSHOP::zap_shop_v1 {
             m.total_supply = total_supply;
         } else {
             let item = Merch { id: merch_type_id, name, price, total_supply, sold: 0 };
-
             Table::add(&mut mt.items, merch_type_id, item);
         };
         let now = timestamp::now_seconds();
@@ -838,6 +854,18 @@ module ZAPSHOP::zap_shop_v1 {
         has_registered(user_addr);
         let now = ensure_in_window();
 
+        assert!(
+            (tier == TIER_BRONZE || tier == TIER_SILVER || tier == TIER_GOLD),
+            E_INVALID_ARGUMENT
+        );
+
+        assert!(
+            (month_slot == SLOT_M1
+                || month_slot == SLOT_M2
+                || month_slot == SLOT_M3),
+            E_INVALID_ARGUMENT
+        );
+
         let i: u8 = 0;
         while (i < quantity) {
             buy_single_crate(user, tier, month_slot, now);
@@ -922,7 +950,7 @@ module ZAPSHOP::zap_shop_v1 {
                 du.silver + 1 <= cfg.silver_user_cap_per_day,
                 E_USER_DAILY_LIMIT_SILVER_CRATE
             );
-        } else {
+        } else if (tier == TIER_GOLD) {
             assert!(
                 du.gold + 1 <= cfg.gold_user_cap_per_day,
                 E_USER_DAILY_LIMIT_GOLD_CRATE
@@ -931,32 +959,26 @@ module ZAPSHOP::zap_shop_v1 {
 
         // charge price by (tier, month_slot)
         let price =
-            if (tier == TIER_BRONZE && month_slot == SLOT_M1) cfg.price_bronze_crate_m1
-            else if (tier == TIER_BRONZE && month_slot == SLOT_M2)
+            if (tier == TIER_BRONZE && month_slot == SLOT_M1) {
+                cfg.price_bronze_crate_m1
+            } else if (tier == TIER_BRONZE && month_slot == SLOT_M2) {
                 cfg.price_bronze_crate_m2
-
-
-            else if (tier == TIER_BRONZE && month_slot == SLOT_M3)
+            } else if (tier == TIER_BRONZE && month_slot == SLOT_M3) {
                 cfg.price_bronze_crate_m3
-
-
-            else if (tier == TIER_SILVER && month_slot == SLOT_M1)
+            } else if (tier == TIER_SILVER && month_slot == SLOT_M1) {
                 cfg.price_silver_crate_m1
-
-
-            else if (tier == TIER_SILVER && month_slot == SLOT_M2)
+            } else if (tier == TIER_SILVER && month_slot == SLOT_M2) {
                 cfg.price_silver_crate_m2
-
-
-            else if (tier == TIER_SILVER && month_slot == SLOT_M3)
+            } else if (tier == TIER_SILVER && month_slot == SLOT_M3) {
                 cfg.price_silver_crate_m3
-
-
-            else if (tier == TIER_GOLD && month_slot == SLOT_M1) cfg.price_gold_crate_m1
-            else if (tier == TIER_GOLD && month_slot == SLOT_M2) cfg.price_gold_crate_m2
-            else if (tier == TIER_GOLD && month_slot == SLOT_M3) cfg.price_gold_crate_m3
-            else {
-                abort E_INVALID_ARGUMENT;
+            } else if (tier == TIER_GOLD && month_slot == SLOT_M1) {
+                cfg.price_gold_crate_m1
+            } else if (tier == TIER_GOLD && month_slot == SLOT_M2) {
+                cfg.price_gold_crate_m2
+            } else if (tier == TIER_GOLD && month_slot == SLOT_M3) {
+                cfg.price_gold_crate_m3
+            } else {
+                abort(E_INVALID_ARGUMENT);
                 0
             };
 
@@ -998,14 +1020,12 @@ module ZAPSHOP::zap_shop_v1 {
         *sold_today_ptr = *sold_today_ptr + 1;
         assert!(*sold_today_ptr >= 1, E_GLOBAL_DAILY_OVERFLOW);
 
+        let d = get_or_init_user(&mut userc.per_day, day);
         if (tier == TIER_BRONZE) {
-            let d = get_or_init_user(&mut userc.per_day, day);
             d.bronze = d.bronze + 1;
         } else if (tier == TIER_SILVER) {
-            let d = get_or_init_user(&mut userc.per_day, day);
             d.silver = d.silver + 1;
         } else {
-            let d = get_or_init_user(&mut userc.per_day, day);
             d.gold = d.gold + 1;
         };
 
@@ -1127,9 +1147,17 @@ module ZAPSHOP::zap_shop_v1 {
         let inv = borrow_global_mut<Inventory>(user_addr);
         if (Table::contains(&inv.merch, merch_type_id)) {
             let q = Table::borrow_mut(&mut inv.merch, merch_type_id);
-            *q = *q + quantity;
+            q.quantity = q.quantity + quantity;
+            q.purchase_time = now;
+            // *q = *q + quantity;
         } else {
-            Table::add(&mut inv.merch, merch_type_id, quantity);
+            let um = UserMerch {
+                type_id: merch_type_id,
+                quantity,
+                price: merch_type.price,
+                purchase_time: now
+            };
+            Table::add(&mut inv.merch, merch_type_id, um);
             vector::push_back(&mut inv.merch_type_ids, merch_type_id);
         };
 
@@ -1903,6 +1931,45 @@ module ZAPSHOP::zap_shop_v1 {
         cfg.crate_open_start_m3 = new_m3;
     }
 
+    #[view]
+    public fun get_config_copy(): Config acquires Config {
+        let cfg = borrow_global<Config>(admin_addr());
+        let new_config = Config {
+            admin: cfg.admin,
+            season_start_ts: cfg.season_start_ts,
+            season_end_ts: cfg.season_end_ts,
+            crate_open_start_m1: cfg.crate_open_start_m1,
+            crate_open_start_m2: cfg.crate_open_start_m2,
+            crate_open_start_m3: cfg.crate_open_start_m3,
+            bronze_total: cfg.bronze_total,
+            silver_total: cfg.silver_total,
+            gold_total: cfg.gold_total,
+            bronze_per_day: cfg.bronze_per_day,
+            silver_per_day: cfg.silver_per_day,
+            gold_per_day: cfg.gold_per_day,
+            bronze_user_cap_per_day: cfg.bronze_user_cap_per_day,
+            silver_user_cap_per_day: cfg.silver_user_cap_per_day,
+            gold_user_cap_per_day: cfg.gold_user_cap_per_day,
+            raffle_price_A: cfg.raffle_price_A,
+            raffle_price_B: cfg.raffle_price_B,
+            raffle_price_C: cfg.raffle_price_C,
+            raffle_price_D: cfg.raffle_price_D,
+            // purchase prices chosen by (tier, month_slot)
+            price_bronze_crate_m1: cfg.price_bronze_crate_m1,
+            price_bronze_crate_m2: cfg.price_bronze_crate_m2,
+            price_bronze_crate_m3: cfg.price_bronze_crate_m3,
+            price_silver_crate_m1: cfg.price_silver_crate_m1,
+            price_silver_crate_m2: cfg.price_silver_crate_m2,
+            price_silver_crate_m3: cfg.price_silver_crate_m3,
+            price_gold_crate_m1: cfg.price_gold_crate_m1,
+            price_gold_crate_m2: cfg.price_gold_crate_m2,
+            price_gold_crate_m3: cfg.price_gold_crate_m3,
+            crate_max_single_prize_supra: cfg.crate_max_single_prize_supra,
+            zap_decimals: cfg.zap_decimals
+        };
+        new_config
+    }
+
     /// Test-only view: returns the full registered users list.
     #[view]
     public fun get_users_list(): vector<address> acquires UsersList {
@@ -2071,10 +2138,27 @@ module ZAPSHOP::zap_shop_v1 {
         (bronze_sold, silver_sold, gold_sold)
     }
 
+    #[view]
+    public fun get_user_crate_limit_daily(
+        user: address, timestamp: u64
+    ): DailyUser acquires UserDayCounters, Config {
+        let cfg = borrow_global<Config>(admin_addr());
+        let day_index = day_index(cfg.season_start_ts, timestamp);
+
+        let userc = borrow_global<UserDayCounters>(user);
+        if (Table::contains(&userc.per_day, day_index)) {
+            *Table::borrow(&userc.per_day, day_index)
+        } else {
+            DailyUser { raffles: 0, bronze: 0, silver: 0, gold: 0 }
+        }
+    }
+
     // ********* VIEWS FOR MERCH ********** //
     /// View: returns quantity of a specific merch type owned by `user`.
     #[view]
-    public fun get_user_merch_quantity(user: address, merch_type_id: u64): u64 acquires Inventory {
+    public fun get_user_merch_quantity(
+        user: address, merch_type_id: u64
+    ): UserMerch acquires Inventory {
         let inv = borrow_global<Inventory>(user);
         *Table::borrow(&inv.merch, merch_type_id)
     }
@@ -2121,18 +2205,19 @@ module ZAPSHOP::zap_shop_v1 {
     /// View: returns the full `MerchType` struct for a given merch type ID.
     /// Includes name, price, max per-user, and total sold.
     #[view]
-    public fun get_merch_details_by_type_id(
-        merch_type_id: u64
-    ): (u64, String, u64, u64, u64) acquires MerchTable {
+    public fun get_all_merch_details(): vector<Merch> acquires MerchTable {
         let mtl = borrow_global<MerchTable>(admin_addr());
-        let merch_type = Table::borrow(&mtl.items, merch_type_id);
-        (
-            merch_type.id,
-            merch_type.name,
-            merch_type.price,
-            merch_type.total_supply,
-            merch_type.sold
-        )
+        let len = vector::length(&mtl.type_ids);
+        let merch_vec = vector::empty<Merch>();
+        while (len > 0) {
+            let merch_type_id = vector::borrow(&mtl.type_ids, len - 1);
+            let merch_type = Table::borrow(&mtl.items, *merch_type_id);
+            vector::push_back(&mut merch_vec, *merch_type);
+            len = len - 1;
+        };
+
+        // let merch_type = Table::borrow(&mtl.items, merch_type_id);
+        merch_vec
     }
 
     #[view]

@@ -471,4 +471,96 @@ export async function claimCratePrize(walletAddress: string, crateId: number) {
   }
 }
 
+export async function getAllMerchDetails() {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
+  try {
+    const response = await fetch(`${SUPRA_RPC_URL}/view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        function: `${moduleAddress}::zap_shop_v1::get_all_merch_details`,
+        type_arguments: [],
+        arguments: [],
+      }),
+    })
+
+    const data = await response.json()
+    return data?.result
+  } catch (e) {
+    console.log(e)
+    throw e
+  }
+}
+
+export async function getUserMerchQuantity(walletAddress: string, merchTypeId: number) {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
+  try {
+    const response = await fetch(`${SUPRA_RPC_URL}/view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        function: `${moduleAddress}::zap_shop_v1::get_user_merch_quantity`,
+        type_arguments: [],
+        arguments: [walletAddress, String(merchTypeId)],
+      }),
+    })
+
+    const data = await response.json()
+    return data?.result
+  } catch (e) {
+    console.log(e)
+    throw e
+  }
+}
+
+export async function getConfigCopy() {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
+  try {
+    const response = await fetch(`${SUPRA_RPC_URL}/view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        function: `${moduleAddress}::zap_shop_v1::get_config_copy`,
+        type_arguments: [],
+        arguments: [],
+      }),
+    })
+
+    const data = await response.json()
+    return data?.result
+  } catch (e) {
+    console.log(e)
+    throw e
+  }
+}
+
+export async function getUserCrateLimitDaily(walletAddress: string, timestamp: number) {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
+  try {
+    const response = await fetch(`${SUPRA_RPC_URL}/view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        function: `${moduleAddress}::zap_shop_v1::get_user_crate_limit_daily`,
+        type_arguments: [],
+        arguments: [walletAddress, String(timestamp)],
+      }),
+    })
+
+    const data = await response.json()
+    return data?.result
+  } catch (e) {
+    console.log(e)
+    throw e
+  }
+}
+
 

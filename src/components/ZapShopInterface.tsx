@@ -12,7 +12,11 @@ import {
   getPrizeAllowed,
   checkCrateOpened,
   getCratesPrizesClaimed,
-  getMerchPurchases
+  getMerchPurchases,
+  getAllMerchDetails,
+  getUserMerchQuantity,
+  getConfigCopy,
+  getUserCrateLimitDaily
 } from '../services/zapshop'
 import { useWallet } from '../contexts/WalletContext'
 import './ZapShopInterface.css'
@@ -514,6 +518,74 @@ const ZapShopInterface = () => {
             className="action-button"
           >
             {loadingMerchPurchases ? 'Loading...' : 'Fetch Merchandise'}
+          </button>
+        </div>
+
+        {/* Get All Merch Details */}
+        <div className="action-card">
+          <h3>All Merchandise Details</h3>
+          <button
+            onClick={() => handleAction(() => getAllMerchDetails(), 'Get All Merch Details')}
+            disabled={loading}
+            className="action-button"
+          >
+            Get All Merch
+          </button>
+        </div>
+
+        {/* Get User Merch Quantity */}
+        <div className="action-card">
+          <h3>My Merch Quantity</h3>
+          <div className="form-group">
+            <label>Merch Type ID:</label>
+            <input
+              type="number"
+              value={merchTypeId}
+              onChange={(e) => setMerchTypeId(e.target.value)}
+              min="0"
+              className="number-input"
+            />
+          </div>
+          <button
+            onClick={() =>
+              handleAction(
+                () => getUserMerchQuantity(account!, parseInt(merchTypeId)),
+                'Get User Merch Quantity',
+              )
+            }
+            disabled={loading || !account}
+            className="action-button"
+          >
+            Get Quantity
+          </button>
+        </div>
+
+        {/* Get Config Copy */}
+        <div className="action-card">
+          <h3>Configuration</h3>
+          <button
+            onClick={() => handleAction(() => getConfigCopy(), 'Get Config')}
+            disabled={loading}
+            className="action-button"
+          >
+            Get Config
+          </button>
+        </div>
+
+        {/* Get User Crate Limit Daily */}
+        <div className="action-card">
+          <h3>My Daily Crate Limits</h3>
+          <button
+            onClick={() =>
+              handleAction(
+                () => getUserCrateLimitDaily(account!, Math.floor(Date.now() / 1000)),
+                'Get Daily Limits',
+              )
+            }
+            disabled={loading || !account}
+            className="action-button"
+          >
+            Get Daily Limits
           </button>
         </div>
       </div>
