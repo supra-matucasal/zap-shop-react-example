@@ -12,11 +12,11 @@ import {
   getPrizeAllowed,
   checkCrateOpened,
   getCratesPrizesClaimed,
-  getMerchPurchases,
-  getAllMerchDetails,
   getUserMerchQuantity,
   getConfigCopy,
-  getUserCrateLimitDaily
+  getUserCrateLimitDaily,
+  getUserInventoryFull,
+  getUserCrateDetails
 } from '../services/zapshop'
 import { useWallet } from '../contexts/WalletContext'
 import './ZapShopInterface.css'
@@ -29,11 +29,14 @@ const ZapShopInterface = () => {
   const [cratePurchases, setCratePurchases] = useState<any[]>([])
   const [rafflePurchases, setRafflePurchases] = useState<any[]>([])
   const [claimedPrizes, setClaimedPrizes] = useState<any[]>([])
-  const [merchPurchases, setMerchPurchases] = useState<any[]>([])
   const [loadingPurchases, setLoadingPurchases] = useState(false)
   const [loadingRafflePurchases, setLoadingRafflePurchases] = useState(false)
   const [loadingClaimedPrizes, setLoadingClaimedPrizes] = useState(false)
-  const [loadingMerchPurchases, setLoadingMerchPurchases] = useState(false)
+  const [fullInventory, setFullInventory] = useState<any>(null)
+  const [loadingFullInventory, setLoadingFullInventory] = useState(false)
+  const [selectedItem, setSelectedItem] = useState<{ type: 'crate' | 'merch' | 'raffle', id: any, data?: any } | null>(null)
+  const [itemDetails, setItemDetails] = useState<any>(null)
+  const [loadingDetails, setLoadingDetails] = useState(false)
 
   // Form states
   const [ticketQuantity, setTicketQuantity] = useState('1')
@@ -135,25 +138,62 @@ const ZapShopInterface = () => {
     }
   }
 
-  const handleFetchMerchPurchases = async () => {
+  
+  const handleFetchFullInventory = async () => {
     if (!account) {
       setError('Please connect your wallet first')
       return
     }
 
-    setLoadingMerchPurchases(true)
+    setLoadingFullInventory(true)
     setError(null)
 
     try {
-      const purchases = await getMerchPurchases(account)
-      setMerchPurchases(purchases)
-      setResult(`Found ${purchases.length} merchandise purchase(s)`)
+      const inventory = await getUserInventoryFull(account)
+      setFullInventory(inventory)
+      setResult(`Full inventory loaded: ${inventory[0]?.length || 0} raffles, ${inventory[1]?.length || 0} crates, ${inventory[2]?.length || 0} merch items`)
     } catch (err: any) {
-      setError(`Failed to fetch merchandise purchases: ${err.message || 'Unknown error'}`)
-      setMerchPurchases([])
+      setError(`Failed to fetch full inventory: ${err.message || 'Unknown error'}`)
+      setFullInventory(null)
     } finally {
-      setLoadingMerchPurchases(false)
+      setLoadingFullInventory(false)
     }
+  }
+
+  const handleItemClick = async (type: 'crate' | 'merch' | 'raffle', id: any, data?: any) => {
+    if (!account) return
+
+    setSelectedItem({ type, id, data })
+    setLoadingDetails(true)
+    setError(null)
+
+    try {
+      if (type === 'crate') {
+        console.log('Fetching crate details for:', { account, crateId: id, crateIdType: typeof id })
+        const details = await getUserCrateDetails(account, Number(id))
+        console.log('Received crate details:', details)
+        console.log('Details type:', typeof details)
+        console.log('Details keys:', details ? Object.keys(details) : 'null/undefined')
+        setItemDetails(details)
+      } else if (type === 'merch') {
+        const details = await getUserMerchQuantity(account, Number(id))
+        setItemDetails(details)
+      } else {
+        // For raffles, we just show the ID and data from inventory
+        setItemDetails({ raffle_id: id, ...data })
+      }
+    } catch (err: any) {
+      console.error('Error fetching item details:', err)
+      setError(`Failed to fetch item details: ${err.message || 'Unknown error'}`)
+      setItemDetails(null)
+    } finally {
+      setLoadingDetails(false)
+    }
+  }
+
+  const closeDetails = () => {
+    setSelectedItem(null)
+    setItemDetails(null)
   }
 
   return (
@@ -213,382 +253,374 @@ const ZapShopInterface = () => {
         )}
       </div>
 
-      <div className="actions-grid">
-        {/* Check Balance */}
-        <div className="action-card">
-          <h3>Check Zaps Balance</h3>
-          <button
-            onClick={() => handleAction(() => checkZapsBalance(account!), 'Check Balance')}
-            disabled={loading || !account}
-            className="action-button"
-          >
-            Check Balance
-          </button>
-        </div>
+      {/* Section 1: Wallet & Account */}
+      {isConnected && (
+        <div className="section">
+          <h2 className="section-title">Wallet & Account</h2>
+          <div className="actions-grid">
+            <div className="action-card">
+              <h3>Check ZAP Balance</h3>
+              <button
+                onClick={() => handleAction(() => checkZapsBalance(account!), 'Check Balance')}
+                disabled={loading || !account}
+                className="action-button"
+              >
+                Check Balance
+              </button>
+            </div>
 
-        {/* Register User */}
-        <div className="action-card">
-          <h3>Register User</h3>
-          <button
-            onClick={() => handleAction(() => registerUserOnChain(account!), 'Register User')}
-            disabled={loading || !account}
-            className="action-button"
-          >
-            Register User
-          </button>
-        </div>
-
-        {/* Buy Raffle Tickets */}
-        <div className="action-card">
-          <h3>Buy Raffle Tickets</h3>
-          <div className="form-group">
-            <label>Ticket Quantity:</label>
-            <input
-              type="number"
-              value={ticketQuantity}
-              onChange={(e) => setTicketQuantity(e.target.value)}
-              min="1"
-              className="number-input"
-            />
+            <div className="action-card">
+              <h3>Register User</h3>
+              <button
+                onClick={() => handleAction(() => registerUserOnChain(account!), 'Register User')}
+                disabled={loading || !account}
+                className="action-button"
+              >
+                Register User
+              </button>
+            </div>
           </div>
-          <div className="form-group">
-            <label>Type ID:</label>
-            <input
-              type="number"
-              value={typeId}
-              onChange={(e) => setTypeId(e.target.value)}
-              min="0"
-              className="number-input"
-            />
+        </div>
+      )}
+
+      {/* Section 2: Buy Items */}
+      {isConnected && (
+        <div className="section">
+          <h2 className="section-title">Buy Items</h2>
+          <div className="actions-grid">
+            <div className="action-card">
+              <h3>Buy Raffle Tickets</h3>
+              <div className="form-group">
+                <label>Ticket Quantity:</label>
+                <input
+                  type="number"
+                  value={ticketQuantity}
+                  onChange={(e) => setTicketQuantity(e.target.value)}
+                  min="1"
+                  className="number-input"
+                />
+              </div>
+              <div className="form-group">
+                <label>Type ID:</label>
+                <input
+                  type="number"
+                  value={typeId}
+                  onChange={(e) => setTypeId(e.target.value)}
+                  min="0"
+                  className="number-input"
+                />
+              </div>
+              <button
+                onClick={() =>
+                  handleAction(
+                    () => buyRafflesTickets(account!, parseInt(ticketQuantity), parseInt(typeId)),
+                    'Buy Raffle Tickets',
+                  )
+                }
+                disabled={loading || !account}
+                className="action-button"
+              >
+                Buy Tickets
+              </button>
+            </div>
+
+            <div className="action-card">
+              <h3>Buy Crates</h3>
+              <div className="form-group">
+                <label>Tier:</label>
+                <input
+                  type="number"
+                  value={tier}
+                  onChange={(e) => setTier(e.target.value)}
+                  min="0"
+                  max="255"
+                  className="number-input"
+                />
+              </div>
+              <div className="form-group">
+                <label>Month Slot:</label>
+                <input
+                  type="number"
+                  value={monthSlot}
+                  onChange={(e) => setMonthSlot(e.target.value)}
+                  min="0"
+                  max="255"
+                  className="number-input"
+                />
+              </div>
+              <div className="form-group">
+                <label>Quantity:</label>
+                <input
+                  type="number"
+                  value={cratesQuantity}
+                  onChange={(e) => setCratesQuantity(e.target.value)}
+                  min="1"
+                  max="255"
+                  className="number-input"
+                />
+              </div>
+              <button
+                onClick={() =>
+                  handleAction(
+                    () =>
+                      buyCratesOnChain(
+                        account!,
+                        parseInt(tier),
+                        parseInt(monthSlot),
+                        parseInt(cratesQuantity),
+                      ),
+                    'Buy Crates',
+                  )
+                }
+                disabled={loading || !account}
+                className="action-button"
+              >
+                Buy Crates
+              </button>
+            </div>
+
+            <div className="action-card">
+              <h3>Buy Merchandise</h3>
+              <div className="form-group">
+                <label>Merch Type ID:</label>
+                <input
+                  type="number"
+                  value={merchTypeId}
+                  onChange={(e) => setMerchTypeId(e.target.value)}
+                  min="0"
+                  className="number-input"
+                />
+              </div>
+              <div className="form-group">
+                <label>Quantity:</label>
+                <input
+                  type="number"
+                  value={merchQuantity}
+                  onChange={(e) => setMerchQuantity(e.target.value)}
+                  min="1"
+                  className="number-input"
+                />
+              </div>
+              <button
+                onClick={() =>
+                  handleAction(
+                    () => buyMerchOnChain(account!, parseInt(merchTypeId), parseInt(merchQuantity)),
+                    'Buy Merchandise',
+                  )
+                }
+                disabled={loading || !account}
+                className="action-button"
+              >
+                Buy Merch
+              </button>
+            </div>
           </div>
-          <button
-            onClick={() =>
-              handleAction(
-                () => buyRafflesTickets(account!, parseInt(ticketQuantity), parseInt(typeId)),
-                'Buy Raffle Tickets',
-              )
-            }
-            disabled={loading || !account}
-            className="action-button"
-          >
-            Buy Tickets
-          </button>
         </div>
+      )}
 
-        {/* Buy Crates */}
-        <div className="action-card">
-          <h3>Buy Crates</h3>
-          <div className="form-group">
-            <label>Tier:</label>
-            <input
-              type="number"
-              value={tier}
-              onChange={(e) => setTier(e.target.value)}
-              min="0"
-              max="255"
-              className="number-input"
-            />
+      {/* Section 3: Crate Operations */}
+      {isConnected && (
+        <div className="section">
+          <h2 className="section-title">Crate Operations</h2>
+          <div className="actions-grid">
+            <div className="action-card">
+              <h3>Open Crate</h3>
+              <div className="form-group">
+                <label>Crate ID:</label>
+                <input
+                  type="number"
+                  value={cratesId}
+                  onChange={(e) => setCratesId(e.target.value)}
+                  min="0"
+                  className="number-input"
+                />
+              </div>
+              <button
+                onClick={() =>
+                  handleAction(() => openCratesOnChain(account!, parseInt(cratesId)), 'Open Crate')
+                }
+                disabled={loading || !account}
+                className="action-button"
+              >
+                Open Crate
+              </button>
+            </div>
+
+            <div className="action-card">
+              <h3>Claim Crate Prize</h3>
+              <div className="form-group">
+                <label>Crate ID:</label>
+                <input
+                  type="number"
+                  value={cratesId}
+                  onChange={(e) => setCratesId(e.target.value)}
+                  min="0"
+                  className="number-input"
+                />
+              </div>
+              <button
+                onClick={() =>
+                  handleAction(
+                    () => claimCratePrize(account!, parseInt(cratesId)),
+                    'Claim Crate Prize',
+                  )
+                }
+                disabled={loading || !account}
+                className="action-button"
+              >
+                Claim Prize
+              </button>
+            </div>
+
+            <div className="action-card">
+              <h3>Check Crate Opened</h3>
+              <div className="form-group">
+                <label>Crate ID:</label>
+                <input
+                  type="number"
+                  value={cratesId}
+                  onChange={(e) => setCratesId(e.target.value)}
+                  min="0"
+                  className="number-input"
+                />
+              </div>
+              <button
+                onClick={() =>
+                  handleAction(
+                    () => checkCrateOpened(account!, parseInt(cratesId)),
+                    'Check Crate Opened',
+                  )
+                }
+                disabled={loading || !account}
+                className="action-button"
+              >
+                Check Status
+              </button>
+            </div>
+
+            <div className="action-card">
+              <h3>Get Prize Alloted</h3>
+              <div className="form-group">
+                <label>Crate ID:</label>
+                <input
+                  type="number"
+                  value={cratesId}
+                  onChange={(e) => setCratesId(e.target.value)}
+                  min="0"
+                  className="number-input"
+                />
+              </div>
+              <button
+                onClick={() =>
+                  handleAction(
+                    () => getPrizeAllowed(account!, parseInt(cratesId)),
+                    'Get Prize Allowed',
+                  )
+                }
+                disabled={loading || !account}
+                className="action-button"
+              >
+                Get Prizes
+              </button>
+            </div>
           </div>
-          <div className="form-group">
-            <label>Month Slot:</label>
-            <input
-              type="number"
-              value={monthSlot}
-              onChange={(e) => setMonthSlot(e.target.value)}
-              min="0"
-              max="255"
-              className="number-input"
-            />
+        </div>
+      )}
+
+      {/* Section 4: Full Inventory */}
+      {isConnected && (
+        <div className="section">
+          <h2 className="section-title">My Full Inventory</h2>
+          <div className="actions-grid">
+            <div className="action-card">
+              <h3>Load Inventory</h3>
+              <button
+                onClick={handleFetchFullInventory}
+                disabled={loadingFullInventory || !account}
+                className="action-button"
+              >
+                {loadingFullInventory ? 'Loading...' : 'Get Full Inventory'}
+              </button>
+            </div>
           </div>
-          <div className="form-group">
-            <label>Quantity:</label>
-            <input
-              type="number"
-              value={cratesQuantity}
-              onChange={(e) => setCratesQuantity(e.target.value)}
-              min="1"
-              max="255"
-              className="number-input"
-            />
+        </div>
+      )}
+
+      {/* Section 5: Configuration & Views */}
+      {isConnected && (
+        <div className="section">
+          <h2 className="section-title">Configuration & Views</h2>
+          <div className="actions-grid">
+            <div className="action-card">
+              <h3>Configuration</h3>
+              <button
+                onClick={() => handleAction(() => getConfigCopy(), 'Get Config')}
+                disabled={loading}
+                className="action-button"
+              >
+                Get Config
+              </button>
+            </div>
+
+            <div className="action-card">
+              <h3>My Daily Crate Limits</h3>
+              <button
+                onClick={() =>
+                  handleAction(
+                    () => getUserCrateLimitDaily(account!, Math.floor(Date.now() / 1000)),
+                    'Get Daily Limits',
+                  )
+                }
+                disabled={loading || !account}
+                className="action-button"
+              >
+                Get Daily Limits
+              </button>
+            </div>
           </div>
-          <button
-            onClick={() =>
-              handleAction(
-                () =>
-                  buyCratesOnChain(
-                    account!,
-                    parseInt(tier),
-                    parseInt(monthSlot),
-                    parseInt(cratesQuantity),
-                  ),
-                'Buy Crates',
-              )
-            }
-            disabled={loading || !account}
-            className="action-button"
-          >
-            Buy Crates
-          </button>
         </div>
+      )}
 
-        {/* Open Crate */}
-        <div className="action-card">
-          <h3>Open Crate</h3>
-          <div className="form-group">
-            <label>Crate ID:</label>
-            <input
-              type="number"
-              value={cratesId}
-              onChange={(e) => setCratesId(e.target.value)}
-              min="0"
-              className="number-input"
-            />
+      {/* Section 6: Events & History */}
+      {isConnected && (
+        <div className="section">
+          <h2 className="section-title">Events & History</h2>
+          <div className="actions-grid">
+            <div className="action-card">
+              <h3>My Crate Purchases</h3>
+              <button
+                onClick={handleFetchCratePurchases}
+                disabled={loadingPurchases || !account}
+                className="action-button"
+              >
+                {loadingPurchases ? 'Loading...' : 'Fetch Purchases'}
+              </button>
+            </div>
+
+            <div className="action-card">
+              <h3>My Raffle Tickets</h3>
+              <button
+                onClick={handleFetchRafflePurchases}
+                disabled={loadingRafflePurchases || !account}
+                className="action-button"
+              >
+                {loadingRafflePurchases ? 'Loading...' : 'Fetch Tickets'}
+              </button>
+            </div>
+
+            <div className="action-card">
+              <h3>My Claimed Prizes</h3>
+              <button
+                onClick={handleFetchClaimedPrizes}
+                disabled={loadingClaimedPrizes || !account}
+                className="action-button"
+              >
+                {loadingClaimedPrizes ? 'Loading...' : 'Fetch Claimed Prizes'}
+              </button>
+            </div>
           </div>
-          <button
-            onClick={() =>
-              handleAction(() => openCratesOnChain(account!, parseInt(cratesId)), 'Open Crate')
-            }
-            disabled={loading || !account}
-            className="action-button"
-          >
-            Open Crate
-          </button>
         </div>
-
-        {/* Claim Crate Prize */}
-        <div className="action-card">
-          <h3>Claim Crate Prize</h3>
-          <div className="form-group">
-            <label>Crate ID:</label>
-            <input
-              type="number"
-              value={cratesId}
-              onChange={(e) => setCratesId(e.target.value)}
-              min="0"
-              className="number-input"
-            />
-          </div>
-          <button
-            onClick={() =>
-              handleAction(
-                () => claimCratePrize(account!, parseInt(cratesId)),
-                'Claim Crate Prize',
-              )
-            }
-            disabled={loading || !account}
-            className="action-button"
-          >
-            Claim Prize
-          </button>
-        </div>
-
-        {/* Check Crate Opened */}
-        <div className="action-card">
-          <h3>Check Crate Opened</h3>
-          <div className="form-group">
-            <label>Crate ID:</label>
-            <input
-              type="number"
-              value={cratesId}
-              onChange={(e) => setCratesId(e.target.value)}
-              min="0"
-              className="number-input"
-            />
-          </div>
-          <button
-            onClick={() =>
-              handleAction(
-                () => checkCrateOpened(account!, parseInt(cratesId)),
-                'Check Crate Opened',
-              )
-            }
-            disabled={loading || !account}
-            className="action-button"
-          >
-            Check Status
-          </button>
-        </div>
-
-        {/* Get Prize Alloted */}
-        <div className="action-card">
-          <h3>Get Prize Alloted</h3>
-          <div className="form-group">
-            <label>Crate ID:</label>
-            <input
-              type="number"
-              value={cratesId}
-              onChange={(e) => setCratesId(e.target.value)}
-              min="0"
-              className="number-input"
-            />
-          </div>
-          <button
-            onClick={() =>
-              handleAction(
-                () => getPrizeAllowed(account!, parseInt(cratesId)),
-                'Get Prize Allowed',
-              )
-            }
-            disabled={loading || !account}
-            className="action-button"
-          >
-            Get Prizes
-          </button>
-        </div>
-
-        {/* Buy Merch */}
-        <div className="action-card">
-          <h3>Buy Merchandise</h3>
-          <div className="form-group">
-            <label>Merch Type ID:</label>
-            <input
-              type="number"
-              value={merchTypeId}
-              onChange={(e) => setMerchTypeId(e.target.value)}
-              min="0"
-              className="number-input"
-            />
-          </div>
-          <div className="form-group">
-            <label>Quantity:</label>
-            <input
-              type="number"
-              value={merchQuantity}
-              onChange={(e) => setMerchQuantity(e.target.value)}
-              min="1"
-              className="number-input"
-            />
-          </div>
-          <button
-            onClick={() =>
-              handleAction(
-                () => buyMerchOnChain(account!, parseInt(merchTypeId), parseInt(merchQuantity)),
-                'Buy Merchandise',
-              )
-            }
-            disabled={loading || !account}
-            className="action-button"
-          >
-            Buy Merch
-          </button>
-        </div>
-
-        {/* Get Crate Purchases */}
-        <div className="action-card">
-          <h3>My Crate Purchases</h3>
-          <button
-            onClick={handleFetchCratePurchases}
-            disabled={loadingPurchases || !account}
-            className="action-button"
-          >
-            {loadingPurchases ? 'Loading...' : 'Fetch Purchases'}
-          </button>
-        </div>
-
-        {/* Get Raffle Purchases */}
-        <div className="action-card">
-          <h3>My Raffle Tickets</h3>
-          <button
-            onClick={handleFetchRafflePurchases}
-            disabled={loadingRafflePurchases || !account}
-            className="action-button"
-          >
-            {loadingRafflePurchases ? 'Loading...' : 'Fetch Tickets'}
-          </button>
-        </div>
-
-        {/* Get Claimed Prizes */}
-        <div className="action-card">
-          <h3>My Claimed Prizes</h3>
-          <button
-            onClick={handleFetchClaimedPrizes}
-            disabled={loadingClaimedPrizes || !account}
-            className="action-button"
-          >
-            {loadingClaimedPrizes ? 'Loading...' : 'Fetch Claimed Prizes'}
-          </button>
-        </div>
-
-        {/* Get Merchandise Purchases */}
-        <div className="action-card">
-          <h3>My Merchandise Purchases</h3>
-          <button
-            onClick={handleFetchMerchPurchases}
-            disabled={loadingMerchPurchases || !account}
-            className="action-button"
-          >
-            {loadingMerchPurchases ? 'Loading...' : 'Fetch Merchandise'}
-          </button>
-        </div>
-
-        {/* Get All Merch Details */}
-        <div className="action-card">
-          <h3>All Merchandise Details</h3>
-          <button
-            onClick={() => handleAction(() => getAllMerchDetails(), 'Get All Merch Details')}
-            disabled={loading}
-            className="action-button"
-          >
-            Get All Merch
-          </button>
-        </div>
-
-        {/* Get User Merch Quantity */}
-        <div className="action-card">
-          <h3>My Merch Quantity</h3>
-          <div className="form-group">
-            <label>Merch Type ID:</label>
-            <input
-              type="number"
-              value={merchTypeId}
-              onChange={(e) => setMerchTypeId(e.target.value)}
-              min="0"
-              className="number-input"
-            />
-          </div>
-          <button
-            onClick={() =>
-              handleAction(
-                () => getUserMerchQuantity(account!, parseInt(merchTypeId)),
-                'Get User Merch Quantity',
-              )
-            }
-            disabled={loading || !account}
-            className="action-button"
-          >
-            Get Quantity
-          </button>
-        </div>
-
-        {/* Get Config Copy */}
-        <div className="action-card">
-          <h3>Configuration</h3>
-          <button
-            onClick={() => handleAction(() => getConfigCopy(), 'Get Config')}
-            disabled={loading}
-            className="action-button"
-          >
-            Get Config
-          </button>
-        </div>
-
-        {/* Get User Crate Limit Daily */}
-        <div className="action-card">
-          <h3>My Daily Crate Limits</h3>
-          <button
-            onClick={() =>
-              handleAction(
-                () => getUserCrateLimitDaily(account!, Math.floor(Date.now() / 1000)),
-                'Get Daily Limits',
-              )
-            }
-            disabled={loading || !account}
-            className="action-button"
-          >
-            Get Daily Limits
-          </button>
-        </div>
-      </div>
+      )}
 
       {loading && (
         <div className="status-message loading">
@@ -718,40 +750,220 @@ const ZapShopInterface = () => {
         </div>
       )}
 
-      {merchPurchases.length > 0 && (
-        <div className="crate-purchases-section">
-          <h3>Merchandise Purchases ({merchPurchases.length})</h3>
-          <div className="purchases-list">
-            {merchPurchases.map((purchase, index) => (
-              <div key={index} className="purchase-item">
-                <div className="purchase-header">
-                  <span className="purchase-id">Merch ID: {purchase.merch_id}</span>
-                  <span className="purchase-tier">Type {purchase.merch_type_id}</span>
-                </div>
-                <div className="purchase-details">
-                  <div className="detail-row">
-                    <span className="detail-label">Merch Type ID:</span>
-                    <span className="detail-value">{purchase.merch_type_id}</span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-label">Quantity:</span>
-                    <span className="detail-value">{purchase.quantity}</span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-label">Date:</span>
-                    <span className="detail-value">
-                      {new Date(purchase.timestamp * 1000).toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="detail-label">Transaction:</span>
-                    <span className="detail-value transaction-hash">
-                      {purchase.transaction_hash.slice(0, 16)}...
-                    </span>
-                  </div>
+      {/* Full Inventory Display */}
+      {fullInventory && (
+        <div className="section">
+          <h2 className="section-title">Inventory Items</h2>
+          <div className="crate-purchases-section">
+            {/* Raffles */}
+            {fullInventory[0] && fullInventory[0].length > 0 && (
+              <div style={{ marginBottom: '30px' }}>
+                <h4>Raffle Tickets ({fullInventory[0].length})</h4>
+                <div className="purchases-list">
+                  {fullInventory[0].map((raffleId: string, index: number) => (
+                    <div 
+                      key={index} 
+                      className="purchase-item clickable-item"
+                      onClick={() => handleItemClick('raffle', raffleId)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <span className="purchase-id">Raffle ID: {String(raffleId)}</span>
+                      <span style={{ marginLeft: '10px', color: '#666' }}>Click for details</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
+            )}
+
+            {/* Crates */}
+            {fullInventory[1] && fullInventory[1].length > 0 && (
+              <div style={{ marginBottom: '30px' }}>
+                <h4>Crates ({fullInventory[1].length})</h4>
+                <div className="purchases-list">
+                  {fullInventory[1].map((crate: any, index: number) => (
+                    <div 
+                      key={index} 
+                      className="purchase-item clickable-item"
+                      onClick={() => handleItemClick('crate', crate.id, crate)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <div className="purchase-header">
+                        <span className="purchase-id">Crate ID: {String(crate.id)}</span>
+                        <span className="purchase-tier">Tier {crate.tier}</span>
+                      </div>
+                      <div className="purchase-details">
+                        <div className="detail-row">
+                          <span className="detail-label">Month Slot:</span>
+                          <span className="detail-value">{crate.month_slot}</span>
+                        </div>
+                        <div className="detail-row">
+                          <span className="detail-label">Opened:</span>
+                          <span className="detail-value">{crate.opened ? 'Yes' : 'No'}</span>
+                        </div>
+                        <div className="detail-row">
+                          <span style={{ color: '#666', fontStyle: 'italic' }}>Click for full details</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Merchandise */}
+            {fullInventory[2] && fullInventory[2].length > 0 && (
+              <div>
+                <h4>Merchandise ({fullInventory[2].length})</h4>
+                <div className="purchases-list">
+                  {fullInventory[2].map((merch: any, index: number) => (
+                    <div 
+                      key={index} 
+                      className="purchase-item clickable-item"
+                      onClick={() => handleItemClick('merch', merch.type_id, merch)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <div className="purchase-header">
+                        <span className="purchase-id">Type ID: {String(merch.type_id)}</span>
+                        <span className="purchase-tier">Qty: {merch.quantity}</span>
+                      </div>
+                      <div className="purchase-details">
+                        <div className="detail-row">
+                          <span className="detail-label">Price:</span>
+                          <span className="detail-value">{String(merch.price)} ZAP</span>
+                        </div>
+                        <div className="detail-row">
+                          <span style={{ color: '#666', fontStyle: 'italic' }}>Click for full details</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(!fullInventory[0] || fullInventory[0].length === 0) &&
+             (!fullInventory[1] || fullInventory[1].length === 0) &&
+             (!fullInventory[2] || fullInventory[2].length === 0) && (
+              <p>No items in inventory</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Item Details Modal/View */}
+      {selectedItem && (
+        <div className="modal-overlay" onClick={closeDetails}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>
+                {selectedItem.type === 'crate' && 'Crate Details'}
+                {selectedItem.type === 'merch' && 'Merchandise Details'}
+                {selectedItem.type === 'raffle' && 'Raffle Details'}
+              </h3>
+              <button className="close-button" onClick={closeDetails}>×</button>
+            </div>
+            <div className="modal-body">
+              {loadingDetails ? (
+                <p>Loading details...</p>
+              ) : itemDetails ? (
+                <div className="item-details">
+                  {selectedItem.type === 'crate' && (
+                    <>
+                      <div className="detail-row">
+                        <span className="detail-label">Crate ID:</span>
+                        <span className="detail-value">{String(itemDetails.id)}</span>
+                      </div>
+                      <div className="detail-row">
+                        <span className="detail-label">Owner:</span>
+                        <span className="detail-value">{String(itemDetails.owner)}</span>
+                      </div>
+                      <div className="detail-row">
+                        <span className="detail-label">Tier:</span>
+                        <span className="detail-value">{itemDetails.tier}</span>
+                      </div>
+                      <div className="detail-row">
+                        <span className="detail-label">Month Slot:</span>
+                        <span className="detail-value">{itemDetails.month_slot}</span>
+                      </div>
+                      <div className="detail-row">
+                        <span className="detail-label">Price:</span>
+                        <span className="detail-value">{String(itemDetails.price)} ZAP</span>
+                      </div>
+                      <div className="detail-row">
+                        <span className="detail-label">Purchased:</span>
+                        <span className="detail-value">
+                          {new Date(Number(itemDetails.purchased_ts) * 1000).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="detail-row">
+                        <span className="detail-label">Unlock Time:</span>
+                        <span className="detail-value">
+                          {new Date(Number(itemDetails.unlock_ts) * 1000).toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="detail-row">
+                        <span className="detail-label">Opened:</span>
+                        <span className="detail-value">{itemDetails.opened ? 'Yes' : 'No'}</span>
+                      </div>
+                      {itemDetails.opened && itemDetails.opened_ts && (
+                        <div className="detail-row">
+                          <span className="detail-label">Opened At:</span>
+                          <span className="detail-value">
+                            {new Date(Number(itemDetails.opened_ts) * 1000).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+                      {itemDetails.prize && (
+                        <div className="detail-row">
+                          <span className="detail-label">Prize:</span>
+                          <span className="detail-value">{String(itemDetails.prize)} SUPRA</span>
+                        </div>
+                      )}
+                      <div className="detail-row">
+                        <span className="detail-label">Prize Claimed:</span>
+                        <span className="detail-value">{itemDetails.is_prize_claimed ? 'Yes' : 'No'}</span>
+                      </div>
+                    </>
+                  )}
+                  {selectedItem.type === 'merch' && (
+                    <>
+                      <div className="detail-row">
+                        <span className="detail-label">Type ID:</span>
+                        <span className="detail-value">{String(itemDetails.type_id)}</span>
+                      </div>
+                      <div className="detail-row">
+                        <span className="detail-label">Quantity:</span>
+                        <span className="detail-value">{String(itemDetails.quantity)}</span>
+                      </div>
+                      <div className="detail-row">
+                        <span className="detail-label">Price:</span>
+                        <span className="detail-value">{String(itemDetails.price)} ZAP</span>
+                      </div>
+                      <div className="detail-row">
+                        <span className="detail-label">Purchase Time:</span>
+                        <span className="detail-value">
+                          {new Date(Number(itemDetails.purchase_time) * 1000).toLocaleString()}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  {selectedItem.type === 'raffle' && (
+                    <>
+                      <div className="detail-row">
+                        <span className="detail-label">Raffle ID:</span>
+                        <span className="detail-value">{String(itemDetails.raffle_id)}</span>
+                      </div>
+                      <div className="detail-row">
+                        <span className="detail-label">Note:</span>
+                        <span className="detail-value">Raffle details are stored in events. Check Events & History section.</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <p>No details available</p>
+              )}
+            </div>
           </div>
         </div>
       )}

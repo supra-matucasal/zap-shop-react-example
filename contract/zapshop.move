@@ -2160,6 +2160,14 @@ module ZAPSHOP::zap_shop_v1 {
         user: address, merch_type_id: u64
     ): UserMerch acquires Inventory {
         let inv = borrow_global<Inventory>(user);
+        if (!Table::contains(&inv.merch, merch_type_id)) {
+            return UserMerch {
+                type_id: merch_type_id,
+                quantity: 0,
+                price: 0,
+                purchase_time: 0
+            }
+        };
         *Table::borrow(&inv.merch, merch_type_id)
     }
 
@@ -2269,6 +2277,35 @@ module ZAPSHOP::zap_shop_v1 {
     ): (vector<u64>, vector<u64>, vector<u64>) acquires Inventory {
         let inv = borrow_global<Inventory>(user);
         (inv.raffle_ids, inv.crate_ids, inv.merch_type_ids)
+    }
+
+    #[view]
+    public fun get_user_inventory_full(
+        user: address
+    ): (vector<u64>, vector<Crate>, vector<UserMerch>) acquires Inventory {
+        assert!(exists<Inventory>(user), E_USER_NOT_REGISTERED);
+        let inv = borrow_global<Inventory>(user);
+        let len = vector::length(&inv.crate_ids);
+        let crates_vec = vector::empty<Crate>();
+        while (len > 0) {
+            let crate_ref =
+                Table::borrow(&inv.crates, *vector::borrow(&inv.crate_ids, len - 1));
+            vector::push_back(&mut crates_vec, *crate_ref);
+            len = len - 1;
+        };
+
+        let lenn = vector::length(&inv.merch_type_ids);
+        let merch_vec = vector::empty<UserMerch>();
+        while (lenn > 0) {
+            let merch_type_id = *vector::borrow(&inv.merch_type_ids, lenn - 1);
+            if (Table::contains(&inv.merch, merch_type_id)) {
+                let um = *Table::borrow(&inv.merch, merch_type_id);
+                vector::push_back(&mut merch_vec, um);
+            };
+            lenn = lenn - 1;
+        };
+
+        (inv.raffle_ids, crates_vec, merch_vec)
     }
 
     #[view]

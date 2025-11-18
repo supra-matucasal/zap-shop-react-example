@@ -384,6 +384,62 @@ export async function getMerchPurchases(walletAddress: string) {
 
 }
 
+export async function getUserCrateDetails(walletAddress: string, crateId: number) {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
+  try {
+    const response = await fetch(`${SUPRA_RPC_URL}/view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        function: `${moduleAddress}::zap_shop_v1::get_user_crate_details`,
+        type_arguments: [],
+        arguments: [walletAddress, String(crateId)],
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('HTTP Error:', response.status, errorText)
+      throw new Error(`HTTP ${response.status}: ${errorText}`)
+    }
+
+    const data = await response.json()
+    console.log('Full RPC response:', JSON.stringify(data, null, 2))
+    
+    // Check for errors in the response
+    if (data?.error) {
+      console.error('RPC Error:', data.error)
+      throw new Error(data.error.message || 'Failed to fetch crate details')
+    }
+    
+    if (!data?.result) {
+      console.error('No result in response:', data)
+      throw new Error('No result returned from RPC')
+    }
+    
+    // The result might be the struct directly, or wrapped in an array
+    // Move structs are typically returned as objects with field names
+    const result = data.result
+    
+    // If it's an array (unlikely but possible), take the first element
+    if (Array.isArray(result) && result.length > 0) {
+      console.log('Result is array, using first element')
+      return result[0]
+    }
+    
+    console.log('Crate details response:', result)
+    console.log('Result type:', typeof result)
+    console.log('Result keys:', result ? Object.keys(result) : 'null/undefined')
+    
+    return result
+  } catch (e) {
+    console.error('Error in getUserCrateDetails:', e)
+    throw e
+  }
+}
+
 export async function checkCrateOpened(walletAddress: string, crateId: number) {
   const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
   try {
@@ -552,6 +608,29 @@ export async function getUserCrateLimitDaily(walletAddress: string, timestamp: n
         function: `${moduleAddress}::zap_shop_v1::get_user_crate_limit_daily`,
         type_arguments: [],
         arguments: [walletAddress, String(timestamp)],
+      }),
+    })
+
+    const data = await response.json()
+    return data?.result
+  } catch (e) {
+    console.log(e)
+    throw e
+  }
+}
+
+export async function getUserInventoryFull(walletAddress: string) {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
+  try {
+    const response = await fetch(`${SUPRA_RPC_URL}/view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        function: `${moduleAddress}::zap_shop_v1::get_user_inventory_full`,
+        type_arguments: [],
+        arguments: [walletAddress],
       }),
     })
 
