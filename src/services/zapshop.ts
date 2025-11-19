@@ -642,4 +642,175 @@ export async function getUserInventoryFull(walletAddress: string) {
   }
 }
 
+/**
+ * Checks if a user can still purchase items based on daily limits
+ * @param walletAddress User's wallet address
+ * @param itemType Type of item: 'crate' | 'raffle' | 'merch'
+ * @param quantity Quantity they want to purchase
+ * @param tier Crate tier (1=Bronze, 2=Silver, 3=Gold) - only for crates
+ * @param merchTypeId Merch type ID - only for merch
+ * @returns Object with canBuy boolean, remaining count, and message
+ */
+export async function checkDailyLimit(
+  walletAddress: string,
+  itemType: 'crate' | 'raffle' | 'merch',
+  quantity: number,
+  tier?: number,
+  merchTypeId?: number
+): Promise<{ canBuy: boolean; remaining: number; limit: number; purchased: number; message: string }> {
+  try {
+    const currentTimestamp = Math.floor(Date.now() / 1000)
+    
+    // Get user's daily purchases
+    const dailyPurchasesRaw = await getUserCrateLimitDaily(walletAddress, currentTimestamp)
+    // Handle array response or default to empty object if missing
+    let dailyPurchases: any = {}
+    if (Array.isArray(dailyPurchasesRaw)) {
+      dailyPurchases = dailyPurchasesRaw[0] || {}
+    } else if (dailyPurchasesRaw && typeof dailyPurchasesRaw === 'object') {
+      dailyPurchases = dailyPurchasesRaw
+    }
+    
+    // Get config to know the limits
+    const configRaw = await getConfigCopy()
+    // Handle array response - config is returned as an array with one object
+    let config: any = {}
+    if (Array.isArray(configRaw)) {
+      config = configRaw[0] || {}
+    } else if (configRaw && typeof configRaw === 'object') {
+      config = configRaw
+    }
+    
+    console.log('Daily purchases:', dailyPurchases)
+    console.log('Config:', config)
+    
+    if (itemType === 'crate') {
+      if (!tier) {
+        return {
+          canBuy: false,
+          remaining: 0,
+          limit: 0,
+          purchased: 0,
+          message: 'Tier is required for crate purchases'
+        }
+      }
+      
+      let purchased: number
+      let limit: number
+      let tierName: string
+      
+      if (tier === 1) { // Bronze
+        purchased = Number(dailyPurchases.bronze || 0)
+        limit = Number(config.bronze_user_cap_per_day || 0)
+        tierName = 'Bronze'
+      } else if (tier === 2) { // Silver
+        purchased = Number(dailyPurchases.silver || 0)
+        limit = Number(config.silver_user_cap_per_day || 0)
+        tierName = 'Silver'
+      } else if (tier === 3) { // Gold
+        purchased = Number(dailyPurchases.gold || 0)
+        limit = Number(config.gold_user_cap_per_day || 0)
+        tierName = 'Gold'
+      } else {
+        return {
+          canBuy: false,
+          remaining: 0,
+          limit: 0,
+          purchased: 0,
+          message: 'Invalid tier. Must be 1 (Bronze), 2 (Silver), or 3 (Gold)'
+        }
+      }
+      
+      const remaining = limit - purchased
+      const canBuy = remaining >= quantity
+      
+      return {
+        canBuy,
+        remaining,
+        limit,
+        purchased,
+        message: canBuy
+          ? `You can buy ${quantity} ${tierName} crate(s). ${remaining} remaining today.`
+          : `Daily limit reached for ${tierName} crates. You've purchased ${purchased}/${limit} today. ${remaining > 0 ? `Only ${remaining} remaining.` : 'No more available today.'}`
+      }
+    } else if (itemType === 'raffle') {
+      // Note: The contract doesn't seem to have a daily limit for raffles in Config
+      // But we can check the daily purchases count
+      const purchased = Number(dailyPurchases.raffles || 0)
+      // Since there's no explicit limit in config, we'll just show the count
+      // You may want to add a limit to the contract or config
+      return {
+        canBuy: true, // No limit enforced in contract
+        remaining: -1, // Unknown
+        limit: -1, // Unknown
+        purchased,
+        message: `You've purchased ${purchased} raffle ticket(s) today. (No daily limit configured)`
+      }
+    } else if (itemType === 'merch') {
+      // Merch has a season limit of 1 per type, not daily
+      // Check if user already owns this merch type
+      if (merchTypeId !== undefined) {
+        try {
+          const userMerch = await getUserMerchQuantity(walletAddress, merchTypeId)
+          const owned = Number(userMerch.quantity || 0)
+          
+          if (owned > 0) {
+            return {
+              canBuy: false,
+              remaining: 0,
+              limit: 1,
+              purchased: owned,
+              message: `You already own this merchandise type. Limit: 1 per season.`
+            }
+          }
+          
+          return {
+            canBuy: true,
+            remaining: 1,
+            limit: 1,
+            purchased: owned,
+            message: `You can buy this merchandise. Limit: 1 per season.`
+          }
+        } catch (e) {
+          console.log(e)
+          // If merch doesn't exist for user, they can buy it
+          return {
+            canBuy: true,
+            remaining: 1,
+            limit: 1,
+            purchased: 0,
+            message: `You can buy this merchandise. Limit: 1 per season.`
+          }
+        }
+      }
+      
+      return {
+        canBuy: false,
+        remaining: 0,
+        limit: 0,
+        purchased: 0,
+        message: 'Merch type ID is required'
+      }
+    }
+    
+    return {
+      canBuy: false,
+      remaining: 0,
+      limit: 0,
+      purchased: 0,
+      message: 'Invalid item type'
+    }
+  } catch (e) {
+    console.error('Error checking daily limit:', e)
+    // On error, allow the purchase attempt (the contract will enforce limits)
+    return {
+      canBuy: true,
+      remaining: -1,
+      limit: -1,
+      purchased: -1,
+      message: 'Could not verify daily limit. Purchase will be attempted.'
+    }
+  }
+}
+
 

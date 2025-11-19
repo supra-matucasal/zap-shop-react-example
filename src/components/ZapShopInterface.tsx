@@ -16,7 +16,8 @@ import {
   getConfigCopy,
   getUserCrateLimitDaily,
   getUserInventoryFull,
-  getUserCrateDetails
+  getUserCrateDetails,
+  checkDailyLimit
 } from '../services/zapshop'
 import { useWallet } from '../contexts/WalletContext'
 import './ZapShopInterface.css'
@@ -37,6 +38,8 @@ const ZapShopInterface = () => {
   const [selectedItem, setSelectedItem] = useState<{ type: 'crate' | 'merch' | 'raffle', id: any, data?: any } | null>(null)
   const [itemDetails, setItemDetails] = useState<any>(null)
   const [loadingDetails, setLoadingDetails] = useState(false)
+  const [limitStatus, setLimitStatus] = useState<{ canBuy: boolean; remaining: number; limit: number; purchased: number; message: string } | null>(null)
+  const [checkingLimit, setCheckingLimit] = useState(false)
 
   // Form states
   const [ticketQuantity, setTicketQuantity] = useState('1')
@@ -196,6 +199,116 @@ const ZapShopInterface = () => {
     setItemDetails(null)
   }
 
+  const handleCheckLimit = async (itemType: 'crate' | 'raffle' | 'merch') => {
+    if (!account) {
+      setError('Please connect your wallet first')
+      return
+    }
+
+    setCheckingLimit(true)
+    setError(null)
+    setLimitStatus(null)
+
+    try {
+      let status
+      if (itemType === 'crate') {
+        status = await checkDailyLimit(
+          account,
+          'crate',
+          parseInt(cratesQuantity),
+          parseInt(tier)
+        )
+      } else if (itemType === 'raffle') {
+        status = await checkDailyLimit(
+          account,
+          'raffle',
+          parseInt(ticketQuantity)
+        )
+      } else if (itemType === 'merch') {
+        status = await checkDailyLimit(
+          account,
+          'merch',
+          parseInt(merchQuantity),
+          undefined,
+          parseInt(merchTypeId)
+        )
+      } else {
+        return
+      }
+
+      setLimitStatus(status)
+      if (!status.canBuy) {
+        setError(status.message)
+      } else {
+        setResult(status.message)
+      }
+    } catch (err: any) {
+      setError(`Failed to check limit: ${err.message || 'Unknown error'}`)
+    } finally {
+      setCheckingLimit(false)
+    }
+  }
+
+  const handleBuyWithLimitCheck = async (
+    action: () => Promise<any>,
+    actionName: string,
+    itemType: 'crate' | 'raffle' | 'merch'
+  ) => {
+    if (!account) {
+      setError('Please connect your wallet first')
+      return
+    }
+
+    // Check limit first
+    setLoading(true)
+    setError(null)
+    setResult(null)
+
+    try {
+      let limitCheck
+      if (itemType === 'crate') {
+        limitCheck = await checkDailyLimit(
+          account,
+          'crate',
+          parseInt(cratesQuantity),
+          parseInt(tier)
+        )
+      } else if (itemType === 'raffle') {
+        limitCheck = await checkDailyLimit(
+          account,
+          'raffle',
+          parseInt(ticketQuantity)
+        )
+      } else if (itemType === 'merch') {
+        limitCheck = await checkDailyLimit(
+          account,
+          'merch',
+          parseInt(merchQuantity),
+          undefined,
+          parseInt(merchTypeId)
+        )
+      } else {
+        limitCheck = { canBuy: true, remaining: -1, limit: -1, purchased: -1, message: '' }
+      }
+
+      setLimitStatus(limitCheck)
+
+      if (!limitCheck.canBuy) {
+        setError(limitCheck.message)
+        setLoading(false)
+        return
+      }
+
+      // If limit check passes, proceed with purchase
+      const response = await action()
+      setResult(`${actionName} successful! ${limitCheck.message} Result: ${JSON.stringify(response, null, 2)}`)
+    } catch (err: any) {
+      setError(`${actionName} failed: ${err.message || 'Unknown error'}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="zapshop-interface">
       <div className="wallet-section">
@@ -311,10 +424,24 @@ const ZapShopInterface = () => {
                 />
               </div>
               <button
+                onClick={() => handleCheckLimit('raffle')}
+                disabled={checkingLimit || !account}
+                className="action-button"
+                style={{ marginBottom: '10px', background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)' }}
+              >
+                {checkingLimit ? 'Checking...' : 'Check Daily Limit'}
+              </button>
+              {limitStatus && limitStatus.message.includes('raffle') && (
+                <div className={`limit-status ${limitStatus.canBuy ? 'limit-ok' : 'limit-error'}`}>
+                  {limitStatus.message}
+                </div>
+              )}
+              <button
                 onClick={() =>
-                  handleAction(
+                  handleBuyWithLimitCheck(
                     () => buyRafflesTickets(account!, parseInt(ticketQuantity), parseInt(typeId)),
                     'Buy Raffle Tickets',
+                    'raffle'
                   )
                 }
                 disabled={loading || !account}
@@ -360,8 +487,21 @@ const ZapShopInterface = () => {
                 />
               </div>
               <button
+                onClick={() => handleCheckLimit('crate')}
+                disabled={checkingLimit || !account}
+                className="action-button"
+                style={{ marginBottom: '10px', background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)' }}
+              >
+                {checkingLimit ? 'Checking...' : 'Check Daily Limit'}
+              </button>
+              {limitStatus && limitStatus.message.includes('crate') && (
+                <div className={`limit-status ${limitStatus.canBuy ? 'limit-ok' : 'limit-error'}`}>
+                  {limitStatus.message}
+                </div>
+              )}
+              <button
                 onClick={() =>
-                  handleAction(
+                  handleBuyWithLimitCheck(
                     () =>
                       buyCratesOnChain(
                         account!,
@@ -370,6 +510,7 @@ const ZapShopInterface = () => {
                         parseInt(cratesQuantity),
                       ),
                     'Buy Crates',
+                    'crate'
                   )
                 }
                 disabled={loading || !account}
@@ -402,10 +543,24 @@ const ZapShopInterface = () => {
                 />
               </div>
               <button
+                onClick={() => handleCheckLimit('merch')}
+                disabled={checkingLimit || !account}
+                className="action-button"
+                style={{ marginBottom: '10px', background: 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)' }}
+              >
+                {checkingLimit ? 'Checking...' : 'Check Limit'}
+              </button>
+              {limitStatus && limitStatus.message.includes('merchandise') && (
+                <div className={`limit-status ${limitStatus.canBuy ? 'limit-ok' : 'limit-error'}`}>
+                  {limitStatus.message}
+                </div>
+              )}
+              <button
                 onClick={() =>
-                  handleAction(
+                  handleBuyWithLimitCheck(
                     () => buyMerchOnChain(account!, parseInt(merchTypeId), parseInt(merchQuantity)),
                     'Buy Merchandise',
+                    'merch'
                   )
                 }
                 disabled={loading || !account}
