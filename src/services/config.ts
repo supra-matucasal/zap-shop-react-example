@@ -114,15 +114,15 @@ export const STARCADE_VENDI_MACHINE_CONTRACT: Record<EnvironmentProps, IContract
 
 export const ZAPSHOP_CONTRACT: Record<EnvironmentProps, IContractConfigProps> | any = {
   development: {
-    CONTRACT_ADDRESS: '0x53772b2daabe687142d724b7827d8508ae2b6f46cab6482ed45d2c410c097300',
+    CONTRACT_ADDRESS: '0x64e6cf6be283a908d51aa7d2eebdd0260915a013cfe37c626f567b6366df8c72',
     CHAIN_ID: SUPRA_CHAIN_ID.development.CHAIN_ID,
   },
   staging: {
-    CONTRACT_ADDRESS: '0x53772b2daabe687142d724b7827d8508ae2b6f46cab6482ed45d2c410c097300',
+    CONTRACT_ADDRESS: '0x64e6cf6be283a908d51aa7d2eebdd0260915a013cfe37c626f567b6366df8c72',
     CHAIN_ID: SUPRA_CHAIN_ID.staging.CHAIN_ID,
   },
   production: {
-    CONTRACT_ADDRESS: '0x53772b2daabe687142d724b7827d8508ae2b6f46cab6482ed45d2c410c097300',
+    CONTRACT_ADDRESS: '0x64e6cf6be283a908d51aa7d2eebdd0260915a013cfe37c626f567b6366df8c72',
     CHAIN_ID: SUPRA_CHAIN_ID.production.CHAIN_ID,
   },
 }

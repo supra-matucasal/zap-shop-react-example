@@ -29,13 +29,13 @@ module ZAPSHOP::zap_shop_v1 {
     }
 
     /********** CONSTANTS **********/
-    const TIER_BRONZE: u8 = 1;
-    const TIER_SILVER: u8 = 2;
-    const TIER_GOLD: u8 = 3;
+    const TIER_BRONZE: u8 = 1; // bronze
+    const TIER_SILVER: u8 = 2; // silver
+    const TIER_GOLD: u8 = 3; // gold
 
-    const SLOT_M1: u8 = 1;
-    const SLOT_M2: u8 = 2;
-    const SLOT_M3: u8 = 3;
+    const SLOT_M1: u8 = 1; // 1st month slot of crate opening
+    const SLOT_M2: u8 = 2; //  2nd month slot of crate opening
+    const SLOT_M3: u8 = 3; // 3rd month slot of crate opening
 
     // raffle tiers
     // tier A = 0
@@ -49,7 +49,7 @@ module ZAPSHOP::zap_shop_v1 {
     const RAFFLE_TIER_C_TYPE1: u8 = 21;
     const RAFFLE_TIER_C_TYPE2: u8 = 22;
     const RAFFLE_TIER_C_TYPE3: u8 = 23;
-    // tier D   = 3
+    // tier D = 3
     const RAFFLE_TIER_D_TYPE1: u8 = 31;
     const RAFFLE_TIER_D_TYPE2: u8 = 32;
 
@@ -94,10 +94,14 @@ module ZAPSHOP::zap_shop_v1 {
         zap_decimals: u8
     }
 
+    // list of users who have registered
+    // stored under admin
     struct UsersList has key {
-        users: vector<address>
+        users: vector<address>,
+        users_init_balance: Table<address, u64> // balance of each user
     }
 
+    // Marker struct for vrf module registration
     struct MarkerVrf has store {}
 
     /// Capability struct that holds the VRF permit
@@ -106,11 +110,13 @@ module ZAPSHOP::zap_shop_v1 {
         permit: SupraVRFPermit<MarkerVrf>
     }
 
+    // Struct to store nonces after requesting vrf randomness
     struct NonceEntry has key {
         raffle_nonce: Option<vector<u64>>,
         crate_nonce: Table<u64, u64>
     }
 
+    // Struct to store raffle winners
     struct RaffleWinners has key {
         raffle_ids: vector<u64>, // unique raffle id which won
         winners_by_type_id: Table<u8, vector<address>>, // owners of the raffleids
@@ -120,6 +126,7 @@ module ZAPSHOP::zap_shop_v1 {
         nonce: u64
     }
 
+    // Struct to store raffles under admin
     struct RafflesList has key {
         raffle_ids: vector<u64>, // all raffle ids sold
         raffle_id_user: Table<u64, address>, // unique raffle_id -> user address
@@ -171,6 +178,7 @@ module ZAPSHOP::zap_shop_v1 {
         merch_type_ids: vector<u64>
     }
 
+    /// User merchandise details of purchase, inside inventory struct
     struct UserMerch has store, drop, copy {
         type_id: u64,
         quantity: u64,
@@ -270,7 +278,8 @@ module ZAPSHOP::zap_shop_v1 {
         crate_id: u64,
         tier: u8,
         prize_supra_alloted: u64,
-        timestamp: u64
+        timestamp: u64,
+        month_slot: u8
     }
 
     #[event]
@@ -296,7 +305,6 @@ module ZAPSHOP::zap_shop_v1 {
         raffle_ids: vector<u64>,
         winners: vector<address>,
         type_id: u8,
-        prize_supra: u64,
         timestamp: u64
     }
 
@@ -334,6 +342,8 @@ module ZAPSHOP::zap_shop_v1 {
     const E_UNLOCK_TOO_EARLY: u64 = 1006;
     const E_CRATE_ALREADY_OPENED: u64 = 1007;
     const E_OUT_OF_SALE_WINDOW_PERIOD: u64 = 1008;
+    const E_USER_ALREADY_INITIATED: u64 = 1009;
+    const E_USER_NOT_INITIATED: u64 = 1025;
 
     const E_GLOBAL_LIMIT: u64 = 1010; // exceeded cumulative allowed (carry-forward)
     const E_USER_DAILY_LIMIT: u64 = 1011; // exceeded per-user daily cap
@@ -379,7 +389,13 @@ module ZAPSHOP::zap_shop_v1 {
     fun init_module(admin: &signer) {
         let admin_addr = signer::address_of(admin);
         move_to(admin, Treasury { addr: admin_addr });
-        move_to(admin, UsersList { users: vector::empty() });
+        move_to(
+            admin,
+            UsersList {
+                users: vector::empty(),
+                users_init_balance: Table::new()
+            }
+        );
         let (_resource_signer, signer_cap) =
             account::create_resource_account(admin, RESOURCE_ADDRESS_SEED);
         move_to(admin, ResourceSignerCap { signer_cap });
@@ -602,9 +618,7 @@ module ZAPSHOP::zap_shop_v1 {
     /// # Aborts with:
     /// - `E_USER_NOT_REGISTERED` is NOT thrown here; this function creates the registration.
     /// - Any `coin::register` or mint/deposit aborts if something goes wrong.
-    public entry fun register_user(
-        user: &signer, zap_balance: u64
-    ) acquires UsersList, CoinCaps, Config, Events {
+    public entry fun register_user(user: &signer) acquires UsersList, CoinCaps, Config, Events {
         let addr = signer::address_of(user);
         let ul = borrow_global_mut<UsersList>(admin_addr());
         if (!vector::contains(&ul.users, &addr)) {
@@ -631,6 +645,10 @@ module ZAPSHOP::zap_shop_v1 {
         if (!exists<UserMerchCap>(addr)) {
             move_to(user, UserMerchCap { bought_merch: Table::new() });
         };
+
+        assert!(Table::contains(&ul.users_init_balance, addr), E_USER_NOT_INITIATED);
+        let zap_balance = *Table::borrow(&ul.users_init_balance, addr);
+
         if (!coin::is_account_registered<ZAP>(addr)) {
             coin::register<ZAP>(user);
             let caps = borrow_global_mut<CoinCaps>(admin_addr());
@@ -643,6 +661,18 @@ module ZAPSHOP::zap_shop_v1 {
             &mut borrow_global_mut<Events>(cfg.admin).user_registered,
             UserRegistered { user: addr, zap_balance, timestamp: now }
         );
+    }
+
+    public entry fun user_init_zap_snapshot(
+        admin: &signer, user: address, zap_balance: u64
+    ) acquires UsersList {
+        let admin_addr = signer::address_of(admin);
+        assert!(@ZAPSHOP == admin_addr, E_NOT_ADMIN);
+        let us = borrow_global_mut<UsersList>(admin_addr());
+        assert!(
+            !Table::contains(&us.users_init_balance, user), E_USER_ALREADY_INITIATED
+        );
+        Table::add(&mut us.users_init_balance, user, zap_balance);
     }
 
     /// Mints and funds a given user account with ZAP tokens (temporary helper).
@@ -1366,11 +1396,7 @@ module ZAPSHOP::zap_shop_v1 {
     /// - `E_ONLY_ADMIN_PRIVILEDGE` if non-admin
     /// - `E_NONCE_NOT_GENERATED_FOR_RAFFLE` if `pick_raffle_winners_init` was not called or not completed
     public entry fun pick_raffle_winners_finalize(
-        admin: &signer,
-        number_of_winners: u64,
-        type_id: u8,
-        is_prize_supra: bool,
-        prize_supra: u64
+        admin: &signer, number_of_winners: u64, type_id: u8
     ) acquires Config, RandomNumberList, RafflesList, RaffleWinners, NonceEntry, Events {
         let cfg = borrow_global<Config>(admin_addr());
         assert!(signer::address_of(admin) == cfg.admin, E_ONLY_ADMIN_PRIVILEDGE);
@@ -1385,7 +1411,8 @@ module ZAPSHOP::zap_shop_v1 {
 
         let r_w = borrow_global_mut<RaffleWinners>(admin_addr()); // ensure resource exists
         let r_l = borrow_global_mut<RafflesList>(admin_addr());
-        let total_raffles = vector::length(&r_l.raffle_ids);
+        let r_l_raffle_ids_by_type = Table::borrow(&r_l.raffle_ids_by_type, type_id);
+        let total_raffles_in_type = vector::length(r_l_raffle_ids_by_type);
 
         let i = 0;
         let all_rand_nums = vector::empty<u256>();
@@ -1414,12 +1441,12 @@ module ZAPSHOP::zap_shop_v1 {
         while (i < len) {
             let rn = *vector::borrow(&all_rand_nums, i);
             let rnd_u64 =
-                if (rn < (total_raffles as u256)) {
+                if (rn < (total_raffles_in_type as u256)) {
                     (rn as u64)
                 } else {
-                    ((rn % (total_raffles as u256)) as u64)
+                    ((rn % (total_raffles_in_type as u256)) as u64)
                 };
-            let picked_raffle_id = *vector::borrow(&r_l.raffle_ids, rnd_u64);
+            let picked_raffle_id = *vector::borrow(r_l_raffle_ids_by_type, rnd_u64);
             let picked_user = *Table::borrow(&r_l.raffle_id_user, picked_raffle_id);
 
             // If the picked address is already a winner in this tier already, skip and continue to pick other users
@@ -1444,20 +1471,9 @@ module ZAPSHOP::zap_shop_v1 {
                 raffle_ids: r_ids_tmp,
                 winners: r_w_tmp,
                 type_id,
-                prize_supra,
                 timestamp: timestamp::now_seconds()
             }
         );
-
-        // // ONLY send supra coins as prize if users doesnt choose physical prize
-        // if (is_prize_supra) {
-        //     let resource_signer_cap = borrow_global<ResourceSignerCap>(@ZAPSHOP);
-        //     let resource_signer =
-        //         account::create_signer_with_capability(&resource_signer_cap.signer_cap);
-        //     supra_account::transfer(&resource_signer, winner_address, prize_supra);
-        // };
-        // (raffle_wins_tmp, raffle_ids_tmp)
-
     }
 
     /********** VRF RANDOMNESS GENERATION LOGIC **********/
@@ -1506,7 +1522,7 @@ module ZAPSHOP::zap_shop_v1 {
                 );
 
             let tbl = &mut borrow_global_mut<RandomNumberList>(@ZAPSHOP).list;
-            Table::add(tbl, nonce, vector::empty<u256>());
+            Table::upsert(tbl, nonce, vector::empty<u256>());
             multiple_call = multiple_call - 1;
             vector::push_back(&mut nonce_list, nonce);
         };
@@ -1577,7 +1593,8 @@ module ZAPSHOP::zap_shop_v1 {
                 crate_id,
                 tier: crate_ref.tier,
                 prize_supra_alloted: prize,
-                timestamp: now
+                timestamp: now,
+                month_slot: crate_ref.month_slot
             }
         );
     }
@@ -1931,6 +1948,37 @@ module ZAPSHOP::zap_shop_v1 {
         cfg.crate_open_start_m3 = new_m3;
     }
 
+    #[test_only]
+    public entry fun simulate_randomness_raffles(
+        admin: &signer,
+        len: u64,
+        nonce_vec: vector<u64>,
+        lower_bound: u256,
+        upper_bound: u256
+    ) acquires RandomNumberList, NonceEntry {
+        assert!(signer::address_of(admin) == admin_addr(), E_ONLY_ADMIN_PRIVILEDGE);
+        let nonce_entry = borrow_global_mut<NonceEntry>(admin_addr());
+        nonce_entry.raffle_nonce = option::some<vector<u64>>(nonce_vec);
+
+        let nonce_length = vector::length(&nonce_vec);
+        while (nonce_length > 0) {
+            let rn_vec = vector::empty<u256>();
+
+            while (len > 0) {
+                let rn = randomness::u256_range(lower_bound, upper_bound);
+                vector::push_back(&mut rn_vec, rn);
+                len = len - 1;
+            };
+
+            let tbl = &mut borrow_global_mut<RandomNumberList>(@ZAPSHOP).list;
+            let nx = *vector::borrow(&nonce_vec, nonce_length - 1);
+            Table::upsert(tbl, nx, vector::empty<u256>());
+            let entry = Table::borrow_mut(tbl, nx);
+            *entry = rn_vec;
+            nonce_length = nonce_length - 1;
+        };
+    }
+
     #[view]
     public fun get_config_copy(): Config acquires Config {
         let cfg = borrow_global<Config>(admin_addr());
@@ -1977,6 +2025,17 @@ module ZAPSHOP::zap_shop_v1 {
         ul.users
     }
 
+    #[view]
+    public fun check_user_initiated(user: address): (bool, u64) acquires UsersList {
+        let ul = borrow_global<UsersList>(admin_addr());
+        let res = Table::contains(&ul.users_init_balance, user);
+        if (res) {
+            (true, *Table::borrow(&ul.users_init_balance, user))
+        } else {
+            (false, 0)
+        }
+    }
+
     /// Test-only view: returns (admin address, ZAP decimals) from Config.
     #[test_only]
     public entry fun get_config_admin_decimals(): (address, u8) acquires Config {
@@ -1990,6 +2049,23 @@ module ZAPSHOP::zap_shop_v1 {
     public fun get_user_raffles(user: address): vector<u64> acquires Inventory {
         let inv = borrow_global<Inventory>(user);
         inv.raffle_ids
+    }
+
+    /// View: returns all raffle IDs of a given type owned by `user`.
+    #[view]
+    public fun get_user_raffles_by_type_id(user: address, type_id: u8): vector<u64> acquires Inventory {
+        let inv = borrow_global<Inventory>(user);
+        let rafs = inv.raffle_ids;
+        let result = vector::empty<u64>();
+        let len = vector::length(&rafs);
+        while (len > 0) {
+            let r = *vector::borrow(&rafs, len - 1);
+            if ((r / 100000000000000) == (type_id as u64)) {
+                vector::push_back(&mut result, r);
+            };
+            len = len - 1;
+        };
+        result
     }
 
     /// View: returns all raffle IDs ever sold.
@@ -2156,9 +2232,7 @@ module ZAPSHOP::zap_shop_v1 {
     // ********* VIEWS FOR MERCH ********** //
     /// View: returns quantity of a specific merch type owned by `user`.
     #[view]
-    public fun get_user_merch_quantity(
-        user: address, merch_type_id: u64
-    ): UserMerch acquires Inventory {
+    public fun get_user_merch_details(user: address, merch_type_id: u64): UserMerch acquires Inventory {
         let inv = borrow_global<Inventory>(user);
         if (!Table::contains(&inv.merch, merch_type_id)) {
             return UserMerch {

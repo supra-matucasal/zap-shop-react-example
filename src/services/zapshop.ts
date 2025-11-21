@@ -24,14 +24,98 @@ export const checkZapsBalance = async (UserAddress: string) => {
   }
 }
 
+export async function checkUserInitiated(walletAddress: string): Promise<{ initiated: boolean; zapBalance: number }> {
+  const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
+  try {
+    const response = await fetch(`${SUPRA_RPC_URL}/view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        function: `${moduleAddress}::zap_shop_v1::check_user_initiated`,
+        type_arguments: [],
+        arguments: [walletAddress],
+      }),
+    })
+
+    const data = await response.json()
+    
+    console.log('checkUserInitiated data:', data)
+    // The function returns (bool, u64) which is a tuple
+    // Move tuples are returned as arrays in RPC responses
+    let result = data?.result
+    
+    // Handle if it's wrapped in an array (e.g., [[true, "50000000"]])
+    // Check if result is an array of arrays (wrapped)
+    if (Array.isArray(result) && result.length > 0 && Array.isArray(result[0])) {
+      result = result[0]
+    }
+    
+    // The tuple should be an array [bool, u64]
+    // result should now be [true, "50000000"] or similar
+    if (Array.isArray(result) && result.length >= 2) {
+      const initiated = result[0] === true || result[0] === 'true' || result[0] === 1 || result[0] === '1'
+      const zapBalance = Number(result[1] || 0)
+      
+      console.log('Parsed initiation status:', { initiated, zapBalance })
+      
+      return {
+        initiated,
+        zapBalance
+      }
+    }
+    
+    console.warn('Unexpected result format:', result)
+    // Fallback if format is different
+    return {
+      initiated: false,
+      zapBalance: 0
+    }
+  } catch (e) {
+    console.log('Error checking user initiated:', e)
+    return {
+      initiated: false,
+      zapBalance: 0
+    }
+  }
+}
+
 export const registerUserOnChain = async (walletAddress: string) => {
   try {
     const supraProvider = window?.starkey?.supra
     if (!supraProvider) throw new Error('Supra wallet not connected.')
 
+    // Check if user is initiated first
+    const initStatus = await checkUserInitiated(walletAddress)
+    if (!initStatus.initiated) {
+      throw new Error(`User not initiated. Please contact admin to initiate your account first. Your account needs to be added via user_init_zap_snapshot before you can register.`)
+    }
+
     const moduleAddress = ZAPSHOP_CONTRACT[appEnv].CONTRACT_ADDRESS
-    const txExpiryTime = Math.ceil(Date.now() / 1000) + 60 // 60 seconds
-    const optionalTransactionPayloadArgs = { txExpiryTime }
+
+    // Automatic gas configuration
+    const DEFAULT_GAS_PRICE = 10_000
+    let gasUnitPrice = DEFAULT_GAS_PRICE
+    try {
+      // Type-safe check for getGasPrice method
+      if ('getGasPrice' in supraProvider && typeof (supraProvider as any).getGasPrice === 'function') {
+        const gp = Number(await (supraProvider as any).getGasPrice())
+        if (!Number.isNaN(gp) && gp > 0) gasUnitPrice = gp
+      }
+    } catch { /* ignore */ }
+    gasUnitPrice = Math.floor(gasUnitPrice * 1.2) 
+
+    const base = 200_000 // Higher base for resource creation
+    const maxGas = Math.max(200_000, Math.min(base, 2_000_000))
+
+    const txExpiryTime = Math.ceil(Date.now() / 1000) + 120 // 120 seconds for complex operation
+
+    const optionalTransactionPayloadArgs = {
+      txExpiryTime,
+      gasUnitPrice,
+      maxGas,
+    }
 
     const data = await supraProvider.createRawTransactionData([
       walletAddress,
@@ -40,7 +124,7 @@ export const registerUserOnChain = async (walletAddress: string) => {
       'zap_shop_v1',
       'register_user',
       [],
-      [BCS.bcsSerializeUint64(6000000000000000)],
+      [],
       optionalTransactionPayloadArgs,
     ])
 
@@ -75,8 +159,9 @@ export const buyRafflesTickets = async (
   const DEFAULT_GAS_PRICE = 10_000;
   let gasUnitPrice = DEFAULT_GAS_PRICE;
   try {
-    if (typeof supraProvider.getGasPrice === 'function') {
-      const gp = Number(await supraProvider.getGasPrice());
+    // Type-safe check for getGasPrice method
+    if ('getGasPrice' in supraProvider && typeof (supraProvider as any).getGasPrice === 'function') {
+      const gp = Number(await (supraProvider as any).getGasPrice());
       if (!Number.isNaN(gp) && gp > 0) gasUnitPrice = gp;
     }
   } catch { /* ignore */ }

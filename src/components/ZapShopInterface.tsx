@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   checkZapsBalance,
   registerUserOnChain,
+  checkUserInitiated,
   buyRafflesTickets,
   buyCratesOnChain,
   openCratesOnChain,
@@ -40,6 +41,8 @@ const ZapShopInterface = () => {
   const [loadingDetails, setLoadingDetails] = useState(false)
   const [limitStatus, setLimitStatus] = useState<{ canBuy: boolean; remaining: number; limit: number; purchased: number; message: string } | null>(null)
   const [checkingLimit, setCheckingLimit] = useState(false)
+  const [userInitStatus, setUserInitStatus] = useState<{ initiated: boolean; zapBalance: number } | null>(null)
+  const [checkingInit, setCheckingInit] = useState(false)
 
   // Form states
   const [ticketQuantity, setTicketQuantity] = useState('1')
@@ -385,12 +388,61 @@ const ZapShopInterface = () => {
             <div className="action-card">
               <h3>Register User</h3>
               <button
-                onClick={() => handleAction(() => registerUserOnChain(account!), 'Register User')}
+                onClick={() => handleAction(async () => {
+                  if (!account) throw new Error('Please connect your wallet first')
+                  
+                  // Check if user is initiated first
+                  const initStatus = await checkUserInitiated(account)
+                  if (!initStatus.initiated) {
+                    throw new Error(`User account not initiated. Please contact admin to initiate your account first. The admin needs to call user_init_zap_snapshot for your address.`)
+                  }
+                  
+                  // Proceed with registration
+                  return await registerUserOnChain(account)
+                }, 'Register User')}
                 disabled={loading || !account}
                 className="action-button"
               >
                 Register User
               </button>
+              <button
+                onClick={async () => {
+                  if (!account) {
+                    setError('Please connect your wallet first')
+                    return
+                  }
+                  
+                  setCheckingInit(true)
+                  setError(null)
+                  setResult(null)
+                  
+                  try {
+                    const status = await checkUserInitiated(account)
+                    setUserInitStatus(status)
+                    if (status.initiated) {
+                      setResult(`User is initiated. ZAP balance to be minted on registration: ${status.zapBalance}`)
+                    } else {
+                      setError(`User is NOT initiated. Please contact admin to initiate your account first.`)
+                    }
+                  } catch (err: any) {
+                    setError(`Failed to check initiation status: ${err.message || 'Unknown error'}`)
+                  } finally {
+                    setCheckingInit(false)
+                  }
+                }}
+                disabled={checkingInit || !account}
+                className="action-button"
+                style={{ marginTop: '10px', background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)' }}
+              >
+                {checkingInit ? 'Checking...' : 'Check Initiation Status'}
+              </button>
+              {userInitStatus && (
+                <div className={`limit-status ${userInitStatus.initiated ? 'limit-ok' : 'limit-error'}`} style={{ marginTop: '10px' }}>
+                  {userInitStatus.initiated 
+                    ? `✓ Initiated - Will receive ${userInitStatus.zapBalance} ZAP on registration`
+                    : '✗ Not initiated - Contact admin'}
+                </div>
+              )}
             </div>
           </div>
         </div>
